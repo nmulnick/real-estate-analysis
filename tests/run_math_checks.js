@@ -64,6 +64,14 @@ function run() {
   var noGainTax = Engine.calcCGTax(0, 1500000, withDep, 0.2);
   assertApprox(noGainTax, 0, 1e-9, "Depreciation recapture should be capped at recognized gain");
 
+  var waParams = baseParams();
+  waParams.waEnabled = true;
+  waParams.waRate = 0.07;
+  waParams.fedCG = 0.2;
+  waParams.niit = 0.038;
+  var waTax = Engine.calcCGTax(1000000, 0, waParams, 0.2);
+  assertApprox(waTax, 290500, 1e-6, "WA capital gains toggle should add 7% above the threshold");
+
   var weightInfo = Engine.normalizeExitScenarioWeights({
     multiExit: true,
     exitBull: 250000000,

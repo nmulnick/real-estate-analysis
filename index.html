@@ -410,7 +410,7 @@ function getInputs() {
     txNow: v('in_tx_now') / 100, txFuture: v('in_tx_future') / 100,
     fedCG: v('in_fed_cg') / 100, niit: v('in_niit') / 100,
     waEnabled: document.getElementById('in_wa_enabled').checked,
-    waRate: 0.0, waThreshold: 250000,  // WA CG tax does not apply to real estate
+    waRate: 0.07, waThreshold: 250000,  // 7% when toggle is ON; default toggle is OFF since WA CG tax doesn't apply to real estate
     ordRate: v('in_ord_rate') / 100,
     depRecap: v('in_dep_recap') / 100, cumDep: d('in_cum_dep'),
   };
