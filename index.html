@@ -1,0 +1,893 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Interactive Investment Analysis</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --blue: #2563eb; --blue-light: #dbeafe;
+    --green: #16a34a; --green-light: #dcfce7;
+    --red: #dc2626; --red-light: #fee2e2;
+    --orange: #ea580c; --orange-light: #ffedd5;
+    --gray-50: #f9fafb; --gray-100: #f3f4f6; --gray-200: #e5e7eb;
+    --gray-300: #d1d5db; --gray-500: #6b7280; --gray-700: #374151; --gray-900: #111827;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--gray-50); color: var(--gray-900); line-height: 1.5; }
+
+  /* Layout */
+  .app { display: flex; min-height: 100vh; }
+  .sidebar {
+    width: 340px; min-width: 340px; background: white; border-right: 1px solid var(--gray-200);
+    overflow-y: auto; padding: 1.25rem; position: sticky; top: 0; height: 100vh;
+  }
+  .main { flex: 1; padding: 2rem; overflow-x: hidden; overflow-y: auto; min-width: 0; }
+  .container { max-width: 1100px; margin: 0 auto; overflow: hidden; }
+
+  /* Sidebar */
+  .sidebar h2 { font-size: 1rem; font-weight: 700; color: var(--gray-900); margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.5rem; }
+  .sidebar h2 svg { width: 18px; height: 18px; }
+  .section-label {
+    font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--blue); margin: 1.25rem 0 0.5rem; padding-top: 0.75rem; border-top: 1px solid var(--gray-200);
+  }
+  .section-label:first-of-type { border-top: none; margin-top: 0.5rem; }
+  .field { margin-bottom: 0.5rem; }
+  .field label {
+    display: flex; align-items: center; font-size: 0.78rem; color: var(--gray-500);
+    margin-bottom: 0.15rem; font-weight: 500; white-space: nowrap; overflow: hidden;
+    min-height: 1.2em;
+  }
+  .field label .tip { margin-left: auto; flex-shrink: 0; }
+  .field input[type="number"], .field input[type="text"] {
+    width: 100%; padding: 0.4rem 0.6rem; border: 1px solid var(--gray-200); border-radius: 6px;
+    font-size: 0.85rem; color: var(--gray-900); background: var(--gray-50); transition: border-color 0.15s;
+  }
+  .field input:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 2px rgba(37,99,235,0.15); }
+  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+  .field-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem; }
+  .field input[data-dollar] { font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+
+  .toggle-field { display: flex; align-items: center; justify-content: space-between; padding: 0.35rem 0; gap: 0.5rem; }
+  .toggle-field label { font-size: 0.78rem; color: var(--gray-500); font-weight: 500; white-space: nowrap; }
+  .toggle-field > label:first-child { display: flex; align-items: center; overflow: hidden; }
+  .section-label { display: flex; align-items: center; gap: 4px; }
+  .toggle { position: relative; width: 36px; height: 20px; cursor: pointer; }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .toggle .slider {
+    position: absolute; inset: 0; background: var(--gray-300); border-radius: 20px; transition: 0.2s;
+  }
+  .toggle .slider::before {
+    content: ''; position: absolute; width: 16px; height: 16px; left: 2px; bottom: 2px;
+    background: white; border-radius: 50%; transition: 0.2s;
+  }
+  .toggle input:checked + .slider { background: var(--green); }
+  .toggle input:checked + .slider::before { transform: translateX(16px); }
+
+  .btn-recalc {
+    width: 100%; padding: 0.6rem; background: linear-gradient(135deg, #1e3a5f, #2563eb);
+    color: white; border: none; border-radius: 8px; font-size: 0.85rem; font-weight: 600;
+    cursor: pointer; margin-top: 1rem; transition: opacity 0.15s;
+  }
+  .btn-recalc:hover { opacity: 0.9; }
+  .btn-recalc:active { transform: scale(0.98); }
+  .live-badge { font-size: 0.65rem; background: var(--green-light); color: var(--green); padding: 0.1rem 0.4rem; border-radius: 4px; font-weight: 600; }
+
+  /* Header */
+  header {
+    background: linear-gradient(135deg, #1e3a5f 0%, #2563eb 100%);
+    color: white; padding: 1.75rem 2rem; border-radius: 14px; margin-bottom: 1.5rem;
+    box-shadow: 0 4px 24px rgba(37,99,235,0.18);
+  }
+  header h1 { font-size: 1.5rem; font-weight: 700; }
+  header .subtitle { font-size: 0.9rem; opacity: 0.85; margin-top: 0.15rem; }
+
+  /* Cards */
+  .card {
+    background: white; border-radius: 12px; padding: 1.5rem; margin-bottom: 1.25rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05); border: 1px solid var(--gray-200);
+    overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%;
+  }
+  .card h2 {
+    font-size: 1.05rem; font-weight: 700; color: var(--gray-700); margin-bottom: 1rem;
+    padding-bottom: 0.6rem; border-bottom: 2px solid var(--gray-100);
+  }
+  .card h3 { font-size: 0.9rem; font-weight: 600; color: var(--gray-700); margin: 1rem 0 0.6rem; }
+
+  /* KPI */
+  .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem; margin-bottom: 1.25rem; }
+  .kpi { background: white; border-radius: 10px; padding: 1rem 1.15rem; border: 1px solid var(--gray-200); }
+  .kpi .label { font-size: 0.7rem; color: var(--gray-500); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+  .kpi .value { font-size: 1.25rem; font-weight: 700; margin-top: 0.15rem; }
+  .kpi .detail { font-size: 0.75rem; color: var(--gray-500); margin-top: 0.15rem; }
+
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+  th { text-align: left; padding: 0.5rem 0.6rem; background: var(--gray-100); font-weight: 600; color: var(--gray-700); border-bottom: 2px solid var(--gray-200); white-space: nowrap; }
+  th.num, td.num { text-align: right; }
+  td { padding: 0.45rem 0.6rem; border-bottom: 1px solid var(--gray-100); white-space: nowrap; }
+  tr:hover td { background: var(--gray-50); }
+  .cell-a { background: #eff6ff !important; color: var(--blue); font-weight: 600; }
+  .cell-b { background: #f0fdf4 !important; color: var(--green); font-weight: 600; }
+  .row-total td { font-weight: 700; border-top: 2px solid var(--gray-300); background: var(--gray-50); }
+  .row-hl td { background: #fefce8; }
+
+  .verdict { display: inline-block; padding: 0.25rem 0.75rem; border-radius: 16px; font-weight: 700; font-size: 0.78rem; }
+  .verdict.b { background: var(--green-light); color: var(--green); }
+  .verdict.a { background: var(--blue-light); color: var(--blue); }
+
+  /* Charts */
+  .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin-bottom: 1.25rem; }
+  .chart-box { background: white; border-radius: 12px; padding: 1.25rem; border: 1px solid var(--gray-200); overflow: hidden; min-width: 0; }
+  .chart-box h3 { font-size: 0.85rem; font-weight: 600; margin-bottom: 0.75rem; color: var(--gray-700); }
+  canvas { max-height: 280px; width: 100% !important; height: auto !important; }
+
+  /* Sensitivity */
+  .sens-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
+  .sens-grid > div { overflow-x: auto; -webkit-overflow-scrolling: touch; min-width: 0; }
+  .sens-table { min-width: 400px; }
+  .sens-table td, .sens-table th { font-size: 0.72rem; padding: 0.35rem 0.5rem; text-align: center; }
+  .sens-table th:first-child, .sens-table td:first-child { text-align: left; font-weight: 600; }
+
+  /* Tooltip question marks */
+  .tip {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 14px; height: 14px; border-radius: 50%; background: var(--gray-200);
+    color: var(--gray-500); font-size: 0.6rem; font-weight: 700; cursor: help;
+    position: relative; margin-left: 3px; vertical-align: middle; flex-shrink: 0;
+    line-height: 1;
+  }
+  .tip:hover { background: var(--blue); color: white; }
+  .tip .tiptext {
+    display: none; position: fixed; background: var(--gray-900); color: white;
+    font-size: 0.75rem; font-weight: 400; padding: 0.6rem 0.75rem; border-radius: 8px;
+    width: 240px; max-width: 85vw; line-height: 1.45; z-index: 9999;
+    text-transform: none; letter-spacing: normal; white-space: normal;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.3); pointer-events: none;
+  }
+  .tip:hover .tiptext { display: block; }
+
+  footer { text-align: center; padding: 1.5rem 0 1rem; font-size: 0.75rem; color: var(--gray-500); }
+
+  /* Tablet */
+  @media (max-width: 1100px) {
+    .app { flex-direction: column; }
+    .sidebar { width: 100%; min-width: auto; height: auto; position: static; border-right: none; border-bottom: 1px solid var(--gray-200); max-height: none; }
+    .main { padding: 1.25rem; }
+    .kpi-grid { grid-template-columns: 1fr 1fr; }
+    .chart-grid, .sens-grid { grid-template-columns: 1fr; }
+    .chart-box { max-width: 100%; }
+    table { font-size: 0.78rem; }
+    td, th { padding: 0.4rem 0.5rem; }
+  }
+  /* Mobile */
+  @media (max-width: 600px) {
+    body { font-size: 14px; overflow-x: hidden; }
+    .app { max-width: 100vw; overflow-x: hidden; }
+    .main { padding: 0.75rem; max-width: 100vw; }
+    .sidebar { padding: 1rem; }
+    .kpi-grid { grid-template-columns: 1fr; }
+    .kpi .value { font-size: 1.1rem; }
+    header { padding: 1.25rem; border-radius: 10px; }
+    header h1 { font-size: 1.15rem; }
+    .card { padding: 0.75rem; overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%; }
+    .card h2 { font-size: 0.9rem; }
+    .field-row { grid-template-columns: 1fr; }
+    .field-row-3 { grid-template-columns: 1fr; }
+    table { font-size: 0.72rem; display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%; }
+    .sens-grid { grid-template-columns: 1fr; }
+    .sens-table { font-size: 0.65rem; }
+    .sens-table td, .sens-table th { padding: 0.25rem 0.35rem; }
+    .chart-grid { grid-template-columns: 1fr; gap: 0.75rem; }
+    .chart-box { padding: 0.75rem; max-width: calc(100vw - 1.5rem); }
+    canvas { max-height: 220px; }
+    .tip .tiptext { width: 200px; max-width: 75vw; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+<!-- ===== SIDEBAR: Editable Assumptions ===== -->
+<aside class="sidebar">
+  <h2>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15V3m0 12l-4-4m4 4l4-4M2 17l.621 2.485A2 2 0 0 0 4.561 21h14.878a2 2 0 0 0 1.94-1.515L22 17"/></svg>
+    Assumptions <span class="live-badge">LIVE</span>
+  </h2>
+  <p style="font-size:0.75rem;color:var(--gray-500);margin-bottom:0.75rem">Edit any value — results update instantly.</p>
+
+  <div class="section-label">Sale & Hold</div>
+  <div class="field"><label>Current Gross Sale Price ($) <span class="tip">?<span class="tiptext">The total sale price if you sold the property today, before any deductions.</span></span></label><input type="text" id="in_gross_sale" data-dollar data-raw="100000000" value="100,000,000"></div>
+  <div class="field"><label>Cost Basis ($) <span class="tip">?<span class="tiptext">Your original purchase price plus capital improvements. Used to calculate capital gains on sale.</span></span></label><input type="text" id="in_cost_basis" data-dollar data-raw="8425000" value="8,425,000"></div>
+  <div class="field-row">
+    <div class="field"><label>Hold Period (yrs) <span class="tip">?<span class="tiptext">Number of years to hold before selling in Scenario B. Also the reinvestment horizon for Scenario A.</span></span></label><input type="number" id="in_hold" value="10" step="1" min="1" max="30"></div>
+    <div class="field"><label>Reinvestment Rate (%) <span class="tip">?<span class="tiptext">The annual return you'd earn by investing the Scenario A sale proceeds (e.g., in stocks, bonds, or another property).</span></span></label><input type="number" id="in_reinv" value="6" step="0.5"></div>
+  </div>
+  <div class="field"><label>Discount Rate (%) <span class="tip">?<span class="tiptext">Used for NPV calculations. Represents your required rate of return — the minimum return you'd accept to justify the risk of holding.</span></span></label><input type="number" id="in_disc" value="7" step="0.5"></div>
+
+  <div class="section-label" id="lbl_exit_section">Exit Price (Year 10)</div>
+  <div class="field" id="exit_single_wrap"><label>Exit Price ($) <span class="tip">?<span class="tiptext">The expected gross sale price when you sell the property at the end of the hold period.</span></span></label><input type="text" id="in_exit_single" data-dollar data-raw="200000000" value="200,000,000"></div>
+  <div class="toggle-field" style="margin-top:0.4rem">
+    <label>Probability-weighted scenarios <span class="tip">?<span class="tiptext">Enable to model bull, base, and bear exit prices with probability weights. The analysis uses a weighted average and shows each sub-scenario.</span></span></label>
+    <label class="toggle"><input type="checkbox" id="in_multi_exit"><span class="slider"></span></label>
+  </div>
+  <div id="exit_multi" style="display:none">
+    <div class="field-row">
+      <div class="field"><label>Bull Exit ($)</label><input type="text" id="in_exit_bull" data-dollar data-raw="250000000" value="250,000,000"></div>
+      <div class="field"><label>Wt (%)</label><input type="number" id="in_wt_bull" value="25" step="5"></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Base Exit ($)</label><input type="text" id="in_exit_base" data-dollar data-raw="200000000" value="200,000,000"></div>
+      <div class="field"><label>Wt (%)</label><input type="number" id="in_wt_base" value="50" step="5"></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Bear Exit ($)</label><input type="text" id="in_exit_bear" data-dollar data-raw="140000000" value="140,000,000"></div>
+      <div class="field"><label>Wt (%)</label><input type="number" id="in_wt_bear" value="25" step="5"></div>
+    </div>
+  </div>
+
+  <div class="section-label">Carrying Costs</div>
+  <div class="field-row">
+    <div class="field"><label>Annual ($/yr) <span class="tip">?<span class="tiptext">Annual property taxes, insurance, and maintenance costs. Set to $0 if your NOI figures already include these expenses.</span></span></label><input type="text" id="in_carry" data-dollar data-raw="0" value="0"></div>
+    <div class="field"><label>Escalation (%/yr) <span class="tip">?<span class="tiptext">Annual increase rate for carrying costs (e.g., 3% means costs grow 3% each year).</span></span></label><input type="number" id="in_carry_esc" value="3" step="0.5"></div>
+  </div>
+  <div class="section-label">Lease NOI <span class="tip">?<span class="tiptext">Net Operating Income from the property. Modeled as two phases: current lease and future lease after re-tenanting or repositioning.</span></span></div>
+  <div class="field-row">
+    <div class="field"><label>Current ($/yr) <span class="tip">?<span class="tiptext">Net annual income from the current lease, through the transition date.</span></span></label><input type="text" id="in_noi_p1" data-dollar data-raw="600000" value="600,000"></div>
+    <div class="field"><label>Future ($/yr) <span class="tip">?<span class="tiptext">Net annual income expected after re-leasing or repositioning the property.</span></span></label><input type="text" id="in_noi_p2" data-dollar data-raw="2000000" value="2,000,000"></div>
+  </div>
+  <div class="field"><label>Transition Year <span class="tip">?<span class="tiptext">When the current lease ends and the future lease begins. Fractional values prorate (e.g., 3.5 = halfway through year 4).</span></span></label><input type="number" id="in_p1_end" value="3.5" step="0.5" min="0"></div>
+
+  <div class="section-label">Transaction Costs</div>
+  <div class="field-row">
+    <div class="field"><label>Sell Now (%) <span class="tip">?<span class="tiptext">Seller-side costs for Scenario A: brokerage commissions, legal, title, and escrow fees as a % of gross sale price.</span></span></label><input type="number" id="in_tx_now" value="14" step="0.5"></div>
+    <div class="field"><label id="lbl_tx_future">Sell Year 10 (%) <span class="tip">?<span class="tiptext">Transaction costs at future sale. Often lower due to off-market or direct sale after a long hold period.</span></span></label><input type="number" id="in_tx_future" value="4" step="0.5"></div>
+  </div>
+
+  <div class="section-label">Tax Rates</div>
+  <div class="toggle-field" style="margin-bottom:0.5rem">
+    <label style="font-weight:700;color:var(--gray-900)">1031 Exchange <span class="tip">?<span class="tiptext">A 1031 exchange defers capital gains taxes by reinvesting sale proceeds into a like-kind property. When ON, federal CG, NIIT, and depreciation recapture are set to 0%.</span></span></label>
+    <label class="toggle"><input type="checkbox" id="in_1031" checked><span class="slider"></span></label>
+  </div>
+  <div class="field-row">
+    <div class="field"><label>Federal Cap Gains (%) <span class="tip">?<span class="tiptext">Federal long-term capital gains tax rate on the profit from selling the property (typically 15% or 20%).</span></span></label><input type="number" id="in_fed_cg" value="0" step="1"></div>
+    <div class="field"><label>NIIT (%) <span class="tip">?<span class="tiptext">Net Investment Income Tax — an additional 3.8% surtax on investment income for high-income taxpayers (AGI above $250K).</span></span></label><input type="number" id="in_niit" value="0" step="0.1"></div>
+  </div>
+  <div class="field-row">
+    <div class="field"><label>Dep. Recapture (%) <span class="tip">?<span class="tiptext">Depreciation recapture tax rate (typically 25%). Applied only to the cumulative depreciation amount claimed during ownership.</span></span></label><input type="number" id="in_dep_recap" value="0" step="1"></div>
+    <div class="field"><label>Cum. Depreciation ($) <span class="tip">?<span class="tiptext">Total depreciation deductions claimed on the property. This amount is "recaptured" (taxed) at the recapture rate upon sale.</span></span></label><input type="text" id="in_cum_dep" data-dollar data-raw="0" value="0"></div>
+  </div>
+  <div class="toggle-field">
+    <label>WA Cap Gains Tax (N/A for RE) <span class="tip">?<span class="tiptext">Washington state's 7% capital gains tax generally does not apply to real estate. Included as a toggle for conservative modeling.</span></span></label>
+    <label class="toggle"><input type="checkbox" id="in_wa_enabled"><span class="slider"></span></label>
+  </div>
+  <div class="field"><label>Ordinary Income Rate (%) <span class="tip">?<span class="tiptext">Your marginal federal income tax rate, applied to net lease income each year. Does not affect capital gains calculations.</span></span></label><input type="number" id="in_ord_rate" value="37" step="1"><span style="font-size:0.68rem;color:var(--gray-500);margin-top:0.1rem;display:block">Applied to lease income</span></div>
+
+  <button class="btn-recalc" onclick="recalculate()">⟳ Recalculate Now</button>
+  <p style="font-size:0.7rem;color:var(--gray-500);margin-top:0.5rem;text-align:center">Also updates on any field change</p>
+</aside>
+
+<!-- ===== MAIN CONTENT ===== -->
+<div class="main">
+<div class="container">
+
+<header>
+  <h1>Commercial Site Investment Analysis</h1>
+  <div class="subtitle">Scenario A (Sell Now) vs. Scenario B (Hold & Sell Later)</div>
+</header>
+
+<!-- KPI -->
+<div class="kpi-grid">
+  <div class="kpi" id="kpiFV"><div class="label" id="kpiFVlbl">FV Winner (Year 10) <span class="tip">?<span class="tiptext">Which scenario produces more total wealth at the end of the hold period, after all taxes.</span></span></div><div class="value" id="kpiFVval"></div><div class="detail" id="kpiFVdet"></div></div>
+  <div class="kpi" id="kpiNPV"><div class="label">NPV Winner <span class="tip">?<span class="tiptext">Which scenario is worth more in today's dollars, discounting all future cash flows at the discount rate.</span></span></div><div class="value" id="kpiNPVval"></div><div class="detail" id="kpiNPVdet"></div></div>
+  <div class="kpi" id="kpiIRR"><div class="label" id="kpiIRRlbl">Hold IRR <span class="tip">?<span class="tiptext">The annualized return you effectively earn by choosing to hold instead of sell. Compare to the reinvestment rate — above means hold wins.</span></span></div><div class="value" id="kpiIRRval"></div><div class="detail" id="kpiIRRdet"></div></div>
+  <div class="kpi"><div class="label" id="kpiPWlbl">Exit Price <span class="tip">?<span class="tiptext">The expected sale price at the end of the hold period. If probability-weighted mode is on, this is the weighted average of all scenarios.</span></span></div><div class="value" id="kpiPWval"></div><div class="detail" id="kpiPWdet"></div></div>
+</div>
+
+<!-- Charts -->
+<div class="chart-grid">
+  <div class="chart-box"><h3 id="chartFVtitle">After-Tax Future Value (Year 10) <span class="tip">?<span class="tiptext">Total after-tax wealth at the end of the hold period for each scenario. Compares Sell Now proceeds (compounded) vs. Hold exit + accumulated cash flows.</span></span></h3><canvas id="chartFV"></canvas></div>
+  <div class="chart-box"><h3>Net Present Value Comparison <span class="tip">?<span class="tiptext">All future cash flows discounted to today's value. Taller bar = better deal in today's dollars.</span></span></h3><canvas id="chartNPV"></canvas></div>
+  <div class="chart-box"><h3>IRR by Exit Scenario <span class="tip">?<span class="tiptext">The annualized return of holding. Red dashed line shows the reinvestment rate — bars above the line favor holding.</span></span></h3><canvas id="chartIRR"></canvas></div>
+  <div class="chart-box"><h3>Scenario B Cash Flow Build-Up <span class="tip">?<span class="tiptext">Annual after-tax net cash flow (bars) and the cumulative compounded balance (line) over the hold period.</span></span></h3><canvas id="chartCF"></canvas></div>
+</div>
+
+<!-- 1. FV Detail -->
+<div class="card">
+  <h2>1. Future Value Comparison — After Tax <span class="tip">?<span class="tiptext">Compares the total after-tax wealth at the end of the hold period. Scenario A invests sale proceeds; Scenario B collects lease income then sells.</span></span></h2>
+  <h3>Scenario A: Sell Now & Reinvest <span class="tip">?<span class="tiptext">Sell today, pay transaction costs and capital gains tax, then invest the net proceeds at the reinvestment rate for the full hold period.</span></span></h3>
+  <table id="tblScenA"></table>
+  <h3>Scenario B: Hold, Lease & Sell <span class="tip">?<span class="tiptext">Hold the property, collect net lease income (taxed as ordinary income), reinvest the cash flows, then sell at the exit price and pay capital gains tax.</span></span></h3>
+  <table id="tblScenB"></table>
+  <h3 style="margin-top:1rem">Verdict <span class="tip">?<span class="tiptext">Side-by-side comparison showing which scenario wins and by how much for each exit price assumption.</span></span></h3>
+  <table id="tblVerdict"></table>
+</div>
+
+<!-- 2. NPV -->
+<div class="card">
+  <h2>2. Net Present Value (NPV) <span class="tip">?<span class="tiptext">NPV converts all future cash flows to today's dollars using the discount rate. A higher NPV means more value in present terms. Scenario A's NPV is simply today's after-tax proceeds.</span></span></h2>
+  <table id="tblNPV"></table>
+</div>
+
+<!-- 3. IRR -->
+<div class="card">
+  <h2>3. Internal Rate of Return (IRR) <span class="tip">?<span class="tiptext">IRR is the annualized return of choosing to hold instead of sell. It treats the Scenario A proceeds as an opportunity cost (negative cash flow at Year 0). If IRR exceeds your reinvestment rate, holding is the better financial decision.</span></span></h2>
+  <p style="font-size:0.82rem;color:var(--gray-500);margin-bottom:0.75rem" id="irrSubtitle"></p>
+  <table id="tblIRR"></table>
+</div>
+
+<!-- Annual CF -->
+<div class="card">
+  <h2>Annual Cash Flow Detail — Scenario B <span class="tip">?<span class="tiptext">Year-by-year breakdown of lease income, carrying costs, taxes, and the cumulative compounded balance of reinvested net cash flows.</span></span></h2>
+  <table id="tblCF"></table>
+</div>
+
+<!-- 4. Sensitivity -->
+<div class="card">
+  <h2>4. Sensitivity Analysis <span class="tip">?<span class="tiptext">Shows how the outcome changes when key assumptions vary. Each cell shows which scenario wins and by how much. Blue = Sell Now (A) wins; Green = Hold (B) wins.</span></span></h2>
+  <div class="sens-grid">
+    <div><h3>Table 1: FV Advantage — Reinv Rate × Exit Price <span class="tip">?<span class="tiptext">How the after-tax future value advantage shifts as you change the reinvestment rate (what you'd earn elsewhere) and the exit sale price.</span></span></h3><table class="sens-table" id="sensT1"></table></div>
+    <div><h3>Table 2: NPV Diff — Carrying × Future Lease NOI <span class="tip">?<span class="tiptext">How the NPV difference changes with different annual carrying costs and future lease NOI levels. Shows break-even combinations.</span></span></h3><table class="sens-table" id="sensT2"></table></div>
+    <div><h3>Table 3: NPV Diff — Discount Rate × Exit Price <span class="tip">?<span class="tiptext">Higher discount rates penalize distant cash flows more, making Scenario A (immediate proceeds) relatively more attractive.</span></span></h3><table class="sens-table" id="sensT3"></table></div>
+    <div><h3>Table 4: FV Diff — CG Rate × TX Cost Rate <span class="tip">?<span class="tiptext">How capital gains tax rates and transaction cost rates affect the future value difference. Uses the base-case exit price.</span></span></h3><p style="font-size:0.72rem;color:var(--gray-500)">Base-case exit</p><table class="sens-table" id="sensT4"></table></div>
+  </div>
+</div>
+
+<!-- Assumptions Summary -->
+<div class="card" id="assumptionsCard">
+  <h2>Key Assumptions <span class="tip">?<span class="tiptext">Summary of all current input values used in the analysis. Change these in the sidebar to update all results instantly.</span></span></h2>
+  <table id="tblAssumptions"></table>
+</div>
+
+<footer>Interactive model · All figures based on sidebar assumptions · Not financial advice</footer>
+</div>
+</div>
+</div>
+
+<script>
+// ============================================================
+// ENGINE — mirrors the Python logic exactly
+// ============================================================
+// --- Dollar-field formatting helpers ---
+function addCommas(numStr) {
+  const parts = numStr.split('.');
+  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return parts.join('.');
+}
+function parseDollar(id) {
+  const el = document.getElementById(id);
+  return parseFloat(el.dataset.raw) || 0;
+}
+function initDollarFields() {
+  document.querySelectorAll('input[data-dollar]').forEach(el => {
+    // On focus: show raw number for easy editing
+    el.addEventListener('focus', () => {
+      el.value = el.dataset.raw;
+      el.select();
+    });
+    // On blur: parse, store raw, display formatted
+    el.addEventListener('blur', () => {
+      const raw = parseFloat(el.value.replace(/,/g, '')) || 0;
+      el.dataset.raw = raw;
+      el.value = addCommas(Math.round(raw).toString());
+    });
+    // On input: update raw value and trigger recalc
+    el.addEventListener('input', () => {
+      const raw = parseFloat(el.value.replace(/,/g, '')) || 0;
+      el.dataset.raw = raw;
+      recalculate();
+    });
+  });
+}
+
+function getInputs() {
+  const v = id => parseFloat(document.getElementById(id).value) || 0;
+  const d = id => parseDollar(id);
+  const multiExit = document.getElementById('in_multi_exit').checked;
+  const singleExit = d('in_exit_single');
+  return {
+    grossSale: d('in_gross_sale'), costBasis: d('in_cost_basis'),
+    holdYears: Math.max(1, Math.round(v('in_hold'))),
+    reinvRate: v('in_reinv') / 100, discRate: v('in_disc') / 100,
+    multiExit: multiExit,
+    exitSingle: singleExit,
+    exitBull: multiExit ? d('in_exit_bull') : singleExit,
+    exitBase: multiExit ? d('in_exit_base') : singleExit,
+    exitBear: multiExit ? d('in_exit_bear') : singleExit,
+    wtBull: multiExit ? v('in_wt_bull') / 100 : 0,
+    wtBase: multiExit ? v('in_wt_base') / 100 : 1,
+    wtBear: multiExit ? v('in_wt_bear') / 100 : 0,
+    initCarry: d('in_carry'), carryEsc: v('in_carry_esc') / 100,
+    noiP1: d('in_noi_p1'), noiP2: d('in_noi_p2'), p1End: v('in_p1_end'),
+    txNow: v('in_tx_now') / 100, txFuture: v('in_tx_future') / 100,
+    fedCG: v('in_fed_cg') / 100, niit: v('in_niit') / 100,
+    waEnabled: document.getElementById('in_wa_enabled').checked,
+    waRate: 0.0, waThreshold: 250000,  // WA CG tax does not apply to real estate
+    ordRate: v('in_ord_rate') / 100,
+    depRecap: v('in_dep_recap') / 100, cumDep: d('in_cum_dep'),
+  };
+}
+
+function calcCGTax(gain, dep, p, fedOverride) {
+  const fed = fedOverride !== undefined ? fedOverride : p.fedCG;
+  if (gain <= 0 && dep <= 0) return 0;
+  let tax = 0;
+  if (dep > 0) tax += dep * p.depRecap;
+  const ordGain = gain > 0 ? Math.max(gain - dep, 0) : 0;
+  tax += ordGain * (fed + p.niit);
+  if (p.waEnabled && gain > p.waThreshold) tax += (gain - p.waThreshold) * p.waRate;
+  return tax;
+}
+
+function calcA(p, reinvOverride, txOverride, fedOverride) {
+  const reinv = reinvOverride !== undefined ? reinvOverride : p.reinvRate;
+  const txRate = txOverride !== undefined ? txOverride : p.txNow;
+  const fed = fedOverride !== undefined ? fedOverride : p.fedCG;
+  const txCosts = p.grossSale * txRate;
+  const netSale = p.grossSale - txCosts;
+  const saleGain = netSale - p.costBasis;
+  const saleTax = calcCGTax(Math.max(saleGain, 0), p.cumDep, p, fed);
+  const atProceeds = netSale - saleTax;
+  const fvGross = atProceeds * Math.pow(1 + reinv, p.holdYears);
+  const invGain = fvGross - atProceeds;
+  const invTax = calcCGTax(invGain, 0, p, fed);
+  const fvAT = fvGross - invTax;
+  return { grossSale: p.grossSale, txCosts, netSale, saleGain, saleTax, atProceeds, fvGross, invGain, invTax, fvAT, npv: atProceeds };
+}
+
+function calcB(exitPrice, p, reinvOverride, discOverride, txOverride, carryOverride, noiP1Override, fedOverride, ordOverride, noiP2Override) {
+  const reinv = reinvOverride !== undefined ? reinvOverride : p.reinvRate;
+  const disc = discOverride !== undefined ? discOverride : p.discRate;
+  const txRate = txOverride !== undefined ? txOverride : p.txFuture;
+  const initC = carryOverride !== undefined ? carryOverride : p.initCarry;
+  const noi1 = noiP1Override !== undefined ? noiP1Override : p.noiP1;
+  const noi2 = noiP2Override !== undefined ? noiP2Override : p.noiP2;
+  const p1End = p.p1End;
+  const fed = fedOverride !== undefined ? fedOverride : p.fedCG;
+  const ord = ordOverride !== undefined ? ordOverride : p.ordRate;
+
+  let compCF = 0, npvCF = 0;
+  const annual = [];
+  for (let yr = 1; yr <= p.holdYears; yr++) {
+    const carry = initC * Math.pow(1 + p.carryEsc, yr - 1);
+    let lease;
+    if (yr <= Math.floor(p1End)) {
+      lease = noi1;
+    } else if (yr === Math.ceil(p1End) && p1End !== Math.floor(p1End)) {
+      const frac1 = p1End - Math.floor(p1End);
+      lease = noi1 * frac1 + noi2 * (1 - frac1);
+    } else {
+      lease = noi2;
+    }
+    const netPre = lease - carry;
+    const incTax = netPre > 0 ? netPre * ord : 0;
+    const netAT = netPre > 0 ? netPre - incTax : netPre;
+    compCF = compCF * (1 + reinv) + netAT;
+    npvCF += netAT / Math.pow(1 + disc, yr);
+    annual.push({ yr, carry, lease, netPre, incTax, netAT, compCF });
+  }
+  const exitTx = exitPrice * txRate;
+  const netExit = exitPrice - exitTx;
+  const exitGain = netExit - p.costBasis;
+  const exitTax = calcCGTax(Math.max(exitGain, 0), p.cumDep, p, fed);
+  const netExitAT = netExit - exitTax;
+  const totalFV = netExitAT + compCF;
+  const pvExit = netExitAT / Math.pow(1 + disc, p.holdYears);
+  const totalNPV = npvCF + pvExit;
+  return { exitPrice, exitTx, netExit, exitGain, exitTax, netExitAT, compCF, totalFV, totalNPV, npvCF, pvExit, annual };
+}
+
+function calcIRR(opp, b, p) {
+  const cf = [-opp];
+  for (const d of b.annual) {
+    let v = d.netAT;
+    if (d.yr === p.holdYears) v += b.netExitAT;
+    cf.push(v);
+  }
+  let r = 0.08;
+  for (let i = 0; i < 1000; i++) {
+    let npv = 0, dnpv = 0;
+    for (let t = 0; t < cf.length; t++) {
+      npv += cf[t] / Math.pow(1 + r, t);
+      dnpv += -t * cf[t] / Math.pow(1 + r, t + 1);
+    }
+    if (Math.abs(dnpv) < 1e-14) break;
+    const rn = r - npv / dnpv;
+    if (Math.abs(rn - r) < 1e-8) return rn;
+    r = rn;
+  }
+  return r;
+}
+
+// ============================================================
+// FORMATTERS
+// ============================================================
+const fmtD = v => '$' + Math.round(v).toLocaleString('en-US');
+const fmtM = v => '$' + (v / 1e6).toFixed(1) + 'M';
+const fmtP = v => (v * 100).toFixed(2) + '%';
+const fmtP1 = v => (v * 100).toFixed(1) + '%';
+const negM = v => '−' + fmtM(Math.abs(v));
+
+// ============================================================
+// CHARTS (created once, updated on recalc)
+// ============================================================
+let chartFV, chartNPV, chartIRR, chartCF;
+const blueA = 'rgba(37,99,235,0.7)', greenA = 'rgba(22,163,74,0.7)', greenL = 'rgba(22,163,74,0.35)', redA = 'rgba(220,38,38,0.5)';
+
+function initCharts() {
+  chartFV = new Chart(document.getElementById('chartFV'), {
+    type: 'bar',
+    data: { labels: [], datasets: [
+      { label: 'Scenario A', data: [], backgroundColor: blueA, borderRadius: 4 },
+      { label: 'Scenario B', data: [], backgroundColor: greenA, borderRadius: 4 },
+    ]},
+    options: { responsive: true, plugins: { tooltip: { callbacks: { label: c => c.dataset.label + ': $' + c.parsed.y.toFixed(1) + 'M' }}}, scales: { y: { beginAtZero: true, ticks: { callback: v => '$' + v + 'M' }}}}
+  });
+  chartNPV = new Chart(document.getElementById('chartNPV'), {
+    type: 'bar',
+    data: { labels: [], datasets: [
+      { label: 'Scenario A NPV', data: [], backgroundColor: blueA, borderRadius: 4 },
+      { label: 'Scenario B NPV', data: [], backgroundColor: greenA, borderRadius: 4 },
+    ]},
+    options: { responsive: true, plugins: { tooltip: { callbacks: { label: c => c.dataset.label + ': $' + c.parsed.y.toFixed(1) + 'M' }}}, scales: { y: { beginAtZero: true, ticks: { callback: v => '$' + v + 'M' }}}}
+  });
+  chartIRR = new Chart(document.getElementById('chartIRR'), {
+    type: 'bar',
+    data: { labels: [], datasets: [{ label: 'IRR', data: [], backgroundColor: [], borderRadius: 4 }] },
+    options: { responsive: true, indexAxis: 'y', plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => 'IRR: ' + c.parsed.x.toFixed(2) + '%' }}}, scales: { x: { beginAtZero: true, ticks: { callback: v => v + '%' }}}},
+    plugins: [{ id: 'irrLine', afterDraw(chart) {
+      const p = getInputs();
+      const x = chart.scales.x.getPixelForValue(p.reinvRate * 100);
+      const ctx = chart.ctx; ctx.save();
+      ctx.beginPath(); ctx.setLineDash([6,4]); ctx.strokeStyle = '#dc2626'; ctx.lineWidth = 2;
+      ctx.moveTo(x, chart.chartArea.top); ctx.lineTo(x, chart.chartArea.bottom); ctx.stroke();
+      ctx.fillStyle = '#dc2626'; ctx.font = '11px sans-serif';
+      ctx.fillText(fmtP1(p.reinvRate) + ' reinv.', x + 4, chart.chartArea.top + 12);
+      ctx.restore();
+    }}]
+  });
+  chartCF = new Chart(document.getElementById('chartCF'), {
+    type: 'bar',
+    data: { labels: [], datasets: [
+      { label: 'Annual Net AT CF', data: [], backgroundColor: greenL, borderRadius: 4, yAxisID: 'y' },
+      { label: 'Compounded Balance', data: [], type: 'line', borderColor: '#2563eb', backgroundColor: 'transparent', pointBackgroundColor: '#2563eb', borderWidth: 2, tension: 0.3, yAxisID: 'y1' },
+    ]},
+    options: { responsive: true, scales: {
+      y: { position: 'left', beginAtZero: true, ticks: { callback: v => '$' + v + 'M' }, title: { display: true, text: 'Annual CF' }},
+      y1: { position: 'right', beginAtZero: true, ticks: { callback: v => '$' + v + 'M' }, title: { display: true, text: 'Compounded' }, grid: { drawOnChartArea: false }},
+    }}
+  });
+}
+
+// ============================================================
+// MAIN RECALCULATE
+// ============================================================
+function recalculate() {
+  const p = getInputs();
+  const a = calcA(p);
+  let scenarios, bResults, irrs, pw, pwExit;
+
+  if (p.multiExit) {
+    pwExit = p.exitBull * p.wtBull + p.exitBase * p.wtBase + p.exitBear * p.wtBear;
+    scenarios = [
+      { label: 'Bull', shortLabel: 'Bull (' + fmtM(p.exitBull) + ')', price: p.exitBull, wt: p.wtBull },
+      { label: 'Base', shortLabel: 'Base (' + fmtM(p.exitBase) + ')', price: p.exitBase, wt: p.wtBase },
+      { label: 'Bear', shortLabel: 'Bear (' + fmtM(p.exitBear) + ')', price: p.exitBear, wt: p.wtBear },
+      { label: 'Prob-Wtd', shortLabel: 'Prob-Weighted', price: pwExit, wt: 1 },
+    ];
+    bResults = scenarios.map(s => ({ ...s, b: calcB(s.price, p) }));
+    irrs = bResults.map(s => ({ ...s, irr: calcIRR(a.atProceeds, s.b, p) }));
+    pw = bResults[3];
+  } else {
+    pwExit = p.exitSingle;
+    scenarios = [
+      { label: 'Exit', shortLabel: fmtM(p.exitSingle) + ' Exit', price: p.exitSingle, wt: 1 },
+    ];
+    bResults = scenarios.map(s => ({ ...s, b: calcB(s.price, p) }));
+    irrs = bResults.map(s => ({ ...s, irr: calcIRR(a.atProceeds, s.b, p) }));
+    pw = bResults[0];
+  }
+
+  // --- Dynamic "Year N" labels ---
+  const yrLabel = 'Year ' + p.holdYears;
+  document.getElementById('lbl_exit_section').innerHTML = 'Exit Price (' + yrLabel + ')';
+  document.getElementById('lbl_tx_future').innerHTML = 'Sell ' + yrLabel + ' (%) <span class="tip">?<span class="tiptext">Transaction costs at future sale. Often lower due to off-market or direct sale after a long hold period.</span></span>';
+  document.getElementById('kpiFVlbl').innerHTML = 'FV Winner (' + yrLabel + ') <span class="tip">?<span class="tiptext">Which scenario produces more total wealth at the end of the hold period, after all taxes.</span></span>';
+  document.getElementById('chartFVtitle').innerHTML = 'After-Tax Future Value (' + yrLabel + ') <span class="tip">?<span class="tiptext">Total after-tax wealth at the end of the hold period for each scenario. Compares Sell Now proceeds (compounded) vs. Hold exit + accumulated cash flows.</span></span>';
+
+  // --- KPIs ---
+  const fvDiff = pw.b.totalFV - a.fvAT;
+  const fvWinner = fvDiff > 0 ? 'B' : 'A';
+  document.getElementById('kpiFVval').textContent = (fvWinner === 'B' ? 'B +' : 'A +') + fmtM(Math.abs(fvDiff));
+  document.getElementById('kpiFVval').style.color = fvWinner === 'B' ? 'var(--green)' : 'var(--blue)';
+  document.getElementById('kpiFVdet').textContent = fmtM(pw.b.totalFV) + ' vs ' + fmtM(a.fvAT);
+
+  const npvDiff = pw.b.totalNPV - a.npv;
+  const npvWinner = npvDiff > 0 ? 'B' : 'A';
+  document.getElementById('kpiNPVval').textContent = (npvWinner === 'B' ? 'B +' : 'A +') + fmtM(Math.abs(npvDiff));
+  document.getElementById('kpiNPVval').style.color = npvWinner === 'B' ? 'var(--green)' : 'var(--blue)';
+  document.getElementById('kpiNPVdet').textContent = fmtM(npvWinner === 'A' ? a.npv : pw.b.totalNPV) + ' vs ' + fmtM(npvWinner === 'A' ? pw.b.totalNPV : a.npv);
+
+  const pwIRR = irrs[irrs.length - 1].irr;
+  document.getElementById('kpiIRRval').textContent = fmtP(pwIRR);
+  document.getElementById('kpiIRRval').style.color = pwIRR > p.reinvRate ? 'var(--green)' : 'var(--blue)';
+  document.getElementById('kpiIRRdet').textContent = (pwIRR > p.reinvRate ? 'Above' : 'Below') + ' ' + fmtP1(p.reinvRate) + ' reinv. → favors ' + (pwIRR > p.reinvRate ? 'holding' : 'selling');
+
+  document.getElementById('kpiIRRlbl').innerHTML = (p.multiExit ? 'Hold IRR (Prob-Wtd)' : 'Hold IRR') + ' <span class="tip">?<span class="tiptext">The annualized return you effectively earn by choosing to hold instead of sell. Compare to the reinvestment rate — above means hold wins.</span></span>';
+  document.getElementById('kpiPWlbl').innerHTML = (p.multiExit ? 'Prob-Weighted Exit' : 'Exit Price') + ' <span class="tip">?<span class="tiptext">The expected sale price at the end of the hold period. If probability-weighted mode is on, this is the weighted average of all scenarios.</span></span>';
+  document.getElementById('kpiPWval').textContent = fmtM(pwExit);
+  document.getElementById('kpiPWval').style.color = 'var(--gray-700)';
+  document.getElementById('kpiPWdet').textContent = p.multiExit
+    ? 'Bull ' + fmtM(p.exitBull) + ' · Base ' + fmtM(p.exitBase) + ' · Bear ' + fmtM(p.exitBear)
+    : 'Single exit price';
+
+  // --- Charts ---
+  const labels4 = bResults.map(s => s.shortLabel);
+  chartFV.data.labels = labels4;
+  chartFV.data.datasets[0].data = labels4.map(() => +(a.fvAT / 1e6).toFixed(1));
+  chartFV.data.datasets[1].data = bResults.map(s => +(s.b.totalFV / 1e6).toFixed(1));
+  chartFV.update();
+
+  chartNPV.data.labels = labels4;
+  chartNPV.data.datasets[0].data = labels4.map(() => +(a.npv / 1e6).toFixed(1));
+  chartNPV.data.datasets[1].data = bResults.map(s => +(s.b.totalNPV / 1e6).toFixed(1));
+  chartNPV.update();
+
+  chartIRR.data.labels = labels4;
+  chartIRR.data.datasets[0].data = irrs.map(s => +(s.irr * 100).toFixed(2));
+  chartIRR.data.datasets[0].backgroundColor = irrs.map(s => s.irr > p.reinvRate ? greenA : redA);
+  chartIRR.update();
+
+  const cfLabels = pw.b.annual.map(d => d.yr);
+  chartCF.data.labels = cfLabels;
+  chartCF.data.datasets[0].data = pw.b.annual.map(d => +(d.netAT / 1e6).toFixed(3));
+  chartCF.data.datasets[1].data = pw.b.annual.map(d => +(d.compCF / 1e6).toFixed(1));
+  chartCF.update();
+
+  // --- Table: Scenario A ---
+  document.getElementById('tblScenA').innerHTML = [
+    tr('Gross Sale Price', fmtD(a.grossSale)),
+    tr('Transaction Costs (' + fmtP1(p.txNow) + ')', negM(a.txCosts), 'var(--red)'),
+    tr('Net Sale Proceeds', fmtD(a.netSale)),
+    tr('Capital Gains Tax on Sale', negM(a.saleTax), 'var(--red)'),
+    trBold('After-Tax Proceeds Invested', fmtD(a.atProceeds)),
+    tr('Compounded @ ' + fmtP1(p.reinvRate) + ' for ' + p.holdYears + ' yrs', fmtD(a.fvGross)),
+    tr('Tax on Investment Gain', negM(a.invTax), 'var(--red)'),
+    trTotal('After-Tax Future Value', fmtD(a.fvAT)),
+  ].join('');
+
+  // --- Table: Scenario B ---
+  const bHead = '<tr><th></th>' + bResults.map(s => '<th class="num">' + s.shortLabel + '</th>').join('') + '</tr>';
+  const bRows = [
+    ['Gross Exit Price', 'exitPrice', 1],
+    ['Transaction Costs', 'exitTx', -1],
+    ['Net Exit Proceeds', 'netExit', 1],
+    ['Capital Gains Tax', 'exitTax', -1],
+    ['Net Exit After Tax', 'netExitAT', 1],
+    ['Compounded Net CF', 'compCF', 1],
+  ].map(([lbl, key, sign]) => '<tr><td>' + lbl + '</td>' + bResults.map(s => {
+    const v = s.b[key];
+    const color = sign < 0 ? ' style="color:var(--red)"' : '';
+    return '<td class="num"' + color + '>' + (sign < 0 ? negM(v) : fmtM(v)) + '</td>';
+  }).join('') + '</tr>').join('');
+  const bTotal = '<tr class="row-total"><td>After-Tax Future Value</td>' + bResults.map(s => '<td class="num">' + fmtM(s.b.totalFV) + '</td>').join('') + '</tr>';
+  document.getElementById('tblScenB').innerHTML = bHead + bRows + bTotal;
+
+  // --- Table: Verdict ---
+  document.getElementById('tblVerdict').innerHTML = '<tr><th></th>' + bResults.map(s => '<th class="num">' + s.label + '</th>').join('') + '</tr>' +
+    '<tr><td>Advantage</td>' + bResults.map(s => {
+      const d = s.b.totalFV - a.fvAT;
+      const w = d > 0 ? 'B' : 'A';
+      return '<td class="num cell-' + w.toLowerCase() + '">' + w + ' +' + fmtM(Math.abs(d)) + '</td>';
+    }).join('') + '</tr>';
+
+  // --- Table: NPV ---
+  const npvHead = '<tr><th></th><th class="num">PV of CFs</th><th class="num">PV of Exit</th><th class="num">Total NPV</th><th class="num">vs Scenario A</th></tr>';
+  const npvRowA = '<tr style="background:var(--blue-light)"><td style="font-weight:600">Scenario A</td><td class="num">—</td><td class="num">—</td><td class="num" style="font-weight:700">' + fmtM(a.npv) + '</td><td class="num">—</td></tr>';
+  const npvRowsB = bResults.map((s, i) => {
+    const d = s.b.totalNPV - a.npv;
+    const w = d > 0 ? 'B' : 'A';
+    const cls = i === 3 ? ' class="row-hl"' : '';
+    return '<tr' + cls + '><td' + (i === 3 ? ' style="font-weight:600"' : '') + '>B — ' + s.shortLabel + '</td><td class="num">' + fmtM(s.b.npvCF) + '</td><td class="num">' + fmtM(s.b.pvExit) + '</td><td class="num" style="font-weight:600">' + fmtM(s.b.totalNPV) + '</td><td class="num cell-' + w.toLowerCase() + '">' + w + ' +' + fmtM(Math.abs(d)) + '</td></tr>';
+  }).join('');
+  document.getElementById('tblNPV').innerHTML = npvHead + npvRowA + npvRowsB;
+
+  // --- Table: IRR ---
+  document.getElementById('irrSubtitle').textContent = 'Opportunity cost (Year 0): ' + fmtD(a.atProceeds) + ' — after-tax proceeds foregone by not selling today.';
+  const irrHead = '<tr><th>Exit Scenario</th><th class="num">IRR</th><th class="num">vs ' + fmtP1(p.reinvRate) + ' Reinvestment</th><th>Decision</th></tr>';
+  const irrRows = irrs.map((s, i) => {
+    const spread = s.irr - p.reinvRate;
+    const hold = spread > 0;
+    const cls = i === 3 ? ' class="row-hl"' : '';
+    return '<tr' + cls + '><td' + (i === 3 ? ' style="font-weight:600"' : '') + '>' + s.shortLabel + '</td><td class="num" style="font-weight:700">' + fmtP(s.irr) + '</td><td class="num cell-' + (hold ? 'b' : 'a') + '">' + (spread >= 0 ? '+' : '') + fmtP(spread) + '</td><td><span class="verdict ' + (hold ? 'b' : 'a') + '">' + (hold ? 'HOLD' : 'SELL') + '</span></td></tr>';
+  }).join('');
+  document.getElementById('tblIRR').innerHTML = irrHead + irrRows;
+
+  // --- Table: Annual CF ---
+  const cfHead = '<tr><th class="num">Year</th><th class="num">Carrying</th><th class="num">Lease</th><th class="num">Net Pre-Tax</th><th class="num">Income Tax</th><th class="num">Net After-Tax</th><th class="num">Compounded</th></tr>';
+  const cfRows = pw.b.annual.map((d, i) => {
+    const cls = i === pw.b.annual.length - 1 ? ' class="row-total"' : '';
+    return '<tr' + cls + '><td class="num">' + d.yr + '</td><td class="num">' + fmtM(d.carry) + '</td><td class="num">' + fmtM(d.lease) + '</td><td class="num">' + fmtM(d.netPre) + '</td><td class="num" style="color:var(--red)">' + negM(d.incTax) + '</td><td class="num">' + fmtM(d.netAT) + '</td><td class="num">' + fmtM(d.compCF) + '</td></tr>';
+  }).join('');
+  document.getElementById('tblCF').innerHTML = cfHead + cfRows;
+
+  // --- Assumptions Summary ---
+  document.getElementById('tblAssumptions').innerHTML = [
+    tr('NOI Phase 1 (current)', fmtD(p.noiP1)),
+    tr('NOI Phase 2 (future)', fmtD(p.noiP2)),
+    tr('Lease Transition Year', p.p1End.toString()),
+    tr('Initial Carrying Cost', fmtD(p.initCarry)),
+    tr('Carry Escalation', fmtP1(p.carryEsc)),
+    tr('Hold Period', p.holdYears + ' years'),
+    tr('Discount Rate', fmtP1(p.discRate)),
+    tr('Reinvestment Rate', fmtP1(p.reinvRate)),
+  ].join('');
+
+  // --- Sensitivity Tables ---
+  buildSens1(p, a); buildSens2(p, a, pwExit); buildSens3(p, a); buildSens4(p);
+}
+
+function buildSens1(p) {
+  const reinvs = [0.04, 0.05, 0.06, 0.07, 0.08];
+  const exits = [150e6, 175e6, 200e6, 225e6, 250e6];
+  let h = '<tr><th>Reinv</th>' + exits.map(e => '<th>' + fmtM(e) + '</th>').join('') + '</tr>';
+  reinvs.forEach(rr => {
+    const aR = calcA(p, rr);
+    h += '<tr><td>' + fmtP1(rr) + '</td>';
+    exits.forEach(ep => {
+      const bR = calcB(ep, p, rr);
+      const d = bR.totalFV - aR.fvAT; const w = d > 0 ? 'B' : 'A';
+      h += '<td class="cell-' + w.toLowerCase() + '">' + w + ' +' + fmtM(Math.abs(d)) + '</td>';
+    });
+    h += '</tr>';
+  });
+  document.getElementById('sensT1').innerHTML = h;
+}
+function buildSens2(p, a, pwExit) {
+  const carries = [500e3, 1e6, 1.5e6, 2e6, 2.5e6];
+  const futureNOIs = [0, 1e6, 2e6, 3e6, 4e6, 5e6];
+  let h = '<tr><th>Carry</th>' + futureNOIs.map(l => '<th>' + fmtM(l) + '</th>').join('') + '</tr>';
+  carries.forEach(cv => {
+    h += '<tr><td>' + fmtM(cv) + '</td>';
+    futureNOIs.forEach(noi2v => {
+      const bR = calcB(pwExit, p, undefined, undefined, undefined, cv, undefined, undefined, undefined, noi2v);
+      const d = bR.totalNPV - a.npv; const w = d > 0 ? 'B' : 'A';
+      h += '<td class="cell-' + w.toLowerCase() + '">' + w + ' +' + fmtM(Math.abs(d)) + '</td>';
+    });
+    h += '</tr>';
+  });
+  document.getElementById('sensT2').innerHTML = h;
+}
+function buildSens3(p, a) {
+  const discs = [0.05, 0.06, 0.07, 0.08, 0.09];
+  const exits = [150e6, 175e6, 200e6, 225e6, 250e6];
+  let h = '<tr><th>Disc</th>' + exits.map(e => '<th>' + fmtM(e) + '</th>').join('') + '</tr>';
+  discs.forEach(dr => {
+    h += '<tr><td>' + fmtP1(dr) + '</td>';
+    exits.forEach(ep => {
+      const bR = calcB(ep, p, undefined, dr);
+      const d = bR.totalNPV - a.npv; const w = d > 0 ? 'B' : 'A';
+      h += '<td class="cell-' + w.toLowerCase() + '">' + w + ' +' + fmtM(Math.abs(d)) + '</td>';
+    });
+    h += '</tr>';
+  });
+  document.getElementById('sensT3').innerHTML = h;
+}
+function buildSens4(p) {
+  const cgs = [0.15, 0.20, 0.25];
+  const txs = [0.01, 0.02, 0.03, 0.04];
+  let h = '<tr><th>CG Rate</th>' + txs.map(t => '<th>TX ' + fmtP1(t) + '</th>').join('') + '</tr>';
+  cgs.forEach(cg => {
+    h += '<tr><td>' + fmtP1(cg) + '</td>';
+    txs.forEach(tx => {
+      const aR = calcA(p, undefined, tx, cg);
+      const bR = calcB(p.exitBase, p, undefined, undefined, tx, undefined, undefined, cg);
+      const d = bR.totalFV - aR.fvAT; const w = d > 0 ? 'B' : 'A';
+      h += '<td class="cell-' + w.toLowerCase() + '">' + w + ' +' + fmtM(Math.abs(d)) + '</td>';
+    });
+    h += '</tr>';
+  });
+  document.getElementById('sensT4').innerHTML = h;
+}
+
+// HTML helpers
+function tr(label, val, color) { return '<tr><td>' + label + '</td><td class="num"' + (color ? ' style="color:' + color + '"' : '') + '>' + val + '</td></tr>'; }
+function trBold(label, val) { return '<tr><td>' + label + '</td><td class="num" style="font-weight:600">' + val + '</td></tr>'; }
+function trTotal(label, val) { return '<tr class="row-total"><td>' + label + '</td><td class="num">' + val + '</td></tr>'; }
+
+// ============================================================
+// 1031 EXCHANGE TOGGLE
+// ============================================================
+const DEFAULT_FED_CG = 20;
+const DEFAULT_NIIT = 3.8;
+const DEFAULT_DEP_RECAP = 25;
+
+function toggle1031() {
+  const on = document.getElementById('in_1031').checked;
+  const fedEl = document.getElementById('in_fed_cg');
+  const niitEl = document.getElementById('in_niit');
+  const depEl = document.getElementById('in_dep_recap');
+
+  if (on) {
+    fedEl.value = 0;
+    niitEl.value = 0;
+    depEl.value = 0;
+  } else {
+    fedEl.value = DEFAULT_FED_CG;
+    niitEl.value = DEFAULT_NIIT;
+    depEl.value = DEFAULT_DEP_RECAP;
+  }
+
+  // Dim the fields when 1031 is on
+  [fedEl, niitEl, depEl].forEach(el => {
+    el.style.opacity = on ? '0.4' : '1';
+    el.readOnly = on;
+  });
+
+  recalculate();
+}
+
+// ============================================================
+// EXIT MODE TOGGLE
+// ============================================================
+function toggleExitMode() {
+  const multi = document.getElementById('in_multi_exit').checked;
+  document.getElementById('exit_multi').style.display = multi ? 'block' : 'none';
+  document.getElementById('exit_single_wrap').style.display = multi ? 'none' : 'block';
+}
+
+// ============================================================
+// INIT & LIVE BINDING
+// ============================================================
+initCharts();
+initDollarFields();
+
+// Apply initial toggle states
+toggle1031();
+toggleExitMode();
+
+// Single unified listener on the entire sidebar — catches all inputs, checkboxes, toggles
+document.querySelector('.sidebar').addEventListener('input', function(e) {
+  const id = e.target.id;
+  if (id === 'in_1031') { toggle1031(); }
+  else if (id === 'in_multi_exit') { toggleExitMode(); }
+  recalculate();
+});
+document.querySelector('.sidebar').addEventListener('change', function(e) {
+  const id = e.target.id;
+  if (id === 'in_1031') { toggle1031(); }
+  else if (id === 'in_multi_exit') { toggleExitMode(); }
+  recalculate();
+});
+
+recalculate();
+
+// --- Tooltip positioning (fixed, clamped to viewport) ---
+document.addEventListener('mouseover', function(e) {
+  const tip = e.target.closest('.tip');
+  if (!tip) return;
+  const tt = tip.querySelector('.tiptext');
+  if (!tt) return;
+  const rect = tip.getBoundingClientRect();
+  const ttW = 240;
+  // Position above the ? icon
+  let top = rect.top - 8;
+  let left = rect.left + rect.width / 2 - ttW / 2;
+  // Clamp horizontally
+  if (left < 8) left = 8;
+  if (left + ttW > window.innerWidth - 8) left = window.innerWidth - ttW - 8;
+  // If no room above, show below
+  tt.style.left = left + 'px';
+  tt.style.bottom = 'auto';
+  tt.style.top = 'auto';
+  if (top < 100) {
+    tt.style.top = (rect.bottom + 8) + 'px';
+  } else {
+    tt.style.bottom = (window.innerHeight - rect.top + 8) + 'px';
+  }
+});
+</script>
+</body>
+</html>
