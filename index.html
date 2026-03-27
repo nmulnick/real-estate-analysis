@@ -408,6 +408,9 @@ function getInputs() {
     waRate: 0.0, waThreshold: 250000,  // WA CG tax does not apply to real estate
     ordRate: v('in_ord_rate') / 100,
     depRecap: v('in_dep_recap') / 100, cumDep: d('in_cum_dep'),
+    // Non-1031 rates for investment gains (stocks/bonds are never 1031-eligible)
+    invFedCG: DEFAULT_FED_CG / 100,
+    invNiit: DEFAULT_NIIT / 100,
   };
 }
 
@@ -433,7 +436,10 @@ function calcA(p, reinvOverride, txOverride, fedOverride) {
   const atProceeds = netSale - saleTax;
   const fvGross = atProceeds * Math.pow(1 + reinv, p.holdYears);
   const invGain = fvGross - atProceeds;
-  const invTax = calcCGTax(invGain, 0, p, fed);
+  // Investment gains (stocks/bonds) are ALWAYS taxed at normal CG rates.
+  // 1031 only defers tax on real estate, not on reinvested proceeds.
+  const invFed = fedOverride !== undefined ? fedOverride : p.invFedCG;
+  const invTax = calcCGTax(invGain, 0, { ...p, niit: fedOverride !== undefined ? p.niit : p.invNiit }, invFed);
   const fvAT = fvGross - invTax;
   return { grossSale: p.grossSale, txCosts, netSale, saleGain, saleTax, atProceeds, fvGross, invGain, invTax, fvAT, npv: atProceeds };
 }
@@ -629,6 +635,8 @@ function recalculate() {
   // Use binary search since the tax calc is non-linear.
   const targetFV = pw.b.totalFV;
   let lo = 0, hi = targetFV * 3;
+  // Investment gains always taxed at normal rates (not 1031)
+  const pInv = { ...p, niit: p.invNiit };
   for (let i = 0; i < 100; i++) {
     const mid = (lo + hi) / 2;
     // Simulate Scenario A with gross sale = mid
@@ -639,7 +647,7 @@ function recalculate() {
     const ap = ns - st;
     const fvG = ap * Math.pow(1 + p.reinvRate, p.holdYears);
     const ig = fvG - ap;
-    const it = calcCGTax(Math.max(ig, 0), 0, p);
+    const it = calcCGTax(Math.max(ig, 0), 0, pInv, p.invFedCG);
     const fvAT = fvG - it;
     if (fvAT < targetFV) lo = mid; else hi = mid;
   }
