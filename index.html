@@ -911,6 +911,14 @@ function recalculate() {
 
   // --- Sensitivity Tables ---
   buildSens1(p, a); buildSens2(p, a, exitAnalysis); buildSens3(p, a); buildSens4(p);
+
+  // Debounced URL sync — keeps address bar current without history spam
+  clearTimeout(window._urlTimer);
+  window._urlTimer = setTimeout(() => {
+    const shareUrl = buildShareURLFromState(normalizeShareState(readShareStateFromDOM()));
+    const params = new URL(shareUrl).search;
+    if (params) history.replaceState(null, '', params);
+  }, 500);
 }
 
 function buildSens1(p) {
