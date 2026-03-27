@@ -143,16 +143,16 @@ class TestShareSchema:
         missing = schema_ids - self.html_ids
         assert missing == set(), f"SHARE_SCHEMA IDs not in HTML: {missing}"
 
-    def test_input_count_is_27(self):
-        """Exactly 27 in_* inputs exist — catches silent additions/removals."""
-        assert len(self.html_ids) == 27, (
-            f"Expected 27 inputs, found {len(self.html_ids)}: {sorted(self.html_ids)}"
+    def test_input_count_is_29(self):
+        """Exactly 29 in_* inputs exist — catches silent additions/removals."""
+        assert len(self.html_ids) == 29, (
+            f"Expected 29 inputs, found {len(self.html_ids)}: {sorted(self.html_ids)}"
         )
 
-    def test_schema_count_is_27(self):
-        """SHARE_SCHEMA has exactly 27 entries — one per input."""
-        assert len(self.schema) == 27, (
-            f"Expected 27 schema entries, found {len(self.schema)}: {sorted(self.schema.keys())}"
+    def test_schema_count_is_29(self):
+        """SHARE_SCHEMA has exactly 29 entries — one per input."""
+        assert len(self.schema) == 29, (
+            f"Expected 29 schema entries, found {len(self.schema)}: {sorted(self.schema.keys())}"
         )
 
     def test_schema_version_in_build_url(self):

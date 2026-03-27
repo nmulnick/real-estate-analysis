@@ -38,17 +38,41 @@
     return toFiniteNumber(p.costBasis, 0) - maxZero(p.cumDep);
   }
 
+  // WA Real Estate Excise Tax — graduated state + flat local
+  const REET_BRACKETS = [
+    { threshold:  525000, rate: 0.011  },
+    { threshold: 1525000, rate: 0.0128 },
+    { threshold: 3025000, rate: 0.0275 },
+    { threshold: Infinity, rate: 0.03  },
+  ];
+
+  function calcREET(grossPrice, localRate) {
+    const safePrice = maxZero(grossPrice);
+    const safeLocal = maxZero(localRate);
+    let stateREET = 0, prevThreshold = 0;
+    for (const bracket of REET_BRACKETS) {
+      const taxableSlice = Math.min(safePrice, bracket.threshold) - prevThreshold;
+      if (taxableSlice <= 0) break;
+      stateREET += taxableSlice * bracket.rate;
+      prevThreshold = bracket.threshold;
+    }
+    const localREET = safePrice * safeLocal;
+    return { stateREET, localREET, totalREET: stateREET + localREET };
+  }
+
   function calcDisposition(grossPrice, txRate, p, fedOverride) {
     const safeGrossPrice = maxZero(grossPrice);
     const safeTxRate = maxZero(txRate);
     const txCosts = safeGrossPrice * safeTxRate;
-    const netProceeds = safeGrossPrice - txCosts;
+    const reet = p.reetEnabled ? calcREET(safeGrossPrice, p.reetLocalRate)
+                               : { stateREET: 0, localREET: 0, totalREET: 0 };
+    const netProceeds = safeGrossPrice - txCosts - reet.totalREET;
     const basis = adjustedBasis(p);
     const recognizedGain = Math.max(netProceeds - basis, 0);
     const tax = calcCGTax(recognizedGain, p.cumDep, p, fedOverride);
     return {
-      grossPrice: safeGrossPrice, txCosts, netProceeds,
-      adjustedBasis: basis, recognizedGain, tax,
+      grossPrice: safeGrossPrice, txCosts, reetTotal: reet.totalREET,
+      netProceeds, adjustedBasis: basis, recognizedGain, tax,
       afterTaxProceeds: netProceeds - tax,
     };
   }
@@ -64,7 +88,8 @@
     const invTax = calcCGTax(invGain, 0, p, fed);
     const fvAT = fvGross - invTax;
     return {
-      grossSale: sale.grossPrice, txCosts: sale.txCosts, netSale: sale.netProceeds,
+      grossSale: sale.grossPrice, txCosts: sale.txCosts, reetTotal: sale.reetTotal,
+      netSale: sale.netProceeds,
       adjustedBasis: sale.adjustedBasis, saleGain: sale.recognizedGain, saleTax: sale.tax,
       atProceeds, fvGross, invGain, invTax, fvAT, npv: atProceeds,
     };
@@ -111,7 +136,8 @@
     const pvExit = exit.afterTaxProceeds / Math.pow(1 + disc, p.holdYears);
     const totalNPV = npvCF + pvExit;
     return {
-      exitPrice: exit.grossPrice, exitTx: exit.txCosts, netExit: exit.netProceeds,
+      exitPrice: exit.grossPrice, exitTx: exit.txCosts, exitREET: exit.reetTotal,
+      netExit: exit.netProceeds,
       adjustedBasis: exit.adjustedBasis, exitGain: exit.recognizedGain, exitTax: exit.tax,
       netExitAT: exit.afterTaxProceeds, compCF, totalFV, totalNPV, npvCF, pvExit, annual,
     };
@@ -338,6 +364,8 @@
   // Export public API
   global.RealEstateEngine = {
     calcCGTax,
+    calcREET,
+    REET_BRACKETS,
     calcDisposition,
     calcAFromGrossSale,
     calcA,
