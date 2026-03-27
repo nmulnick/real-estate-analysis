@@ -448,6 +448,7 @@ const OFF_DEFAULTS_1031 = { cg: 20, ni: 3.8, dp: 25 };
 const SINGLE_EXIT_OMIT = ['xb', 'wb', 'xm', 'wm', 'xr', 'wr'];
 const MULTI_EXIT_OMIT = ['xs'];
 const TAX_FIELDS_1031 = ['cg', 'ni', 'dp'];
+const REET_FIELDS_OMIT = ['rl'];
 
 // ============================================================
 // LOW-LEVEL DOM HELPERS
@@ -514,6 +515,7 @@ function normalizeShareState(state) {
   if (!isMulti) SINGLE_EXIT_OMIT.forEach(k => omitKeys.add(k));
   if (isMulti) MULTI_EXIT_OMIT.forEach(k => omitKeys.add(k));
   if (is1031) TAX_FIELDS_1031.forEach(k => omitKeys.add(k));
+  if (!state.re) REET_FIELDS_OMIT.forEach(k => omitKeys.add(k));
 
   for (const [key, cfg] of Object.entries(SHARE_SCHEMA)) {
     if (omitKeys.has(key)) continue;

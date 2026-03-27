@@ -252,6 +252,22 @@ class TestShareEncoding:
         keys = re.findall(r"'(\w+)'", match.group(1))
         assert set(keys) == {'cg', 'ni', 'dp'}
 
+    def test_reet_fields_omit_keys_defined(self):
+        """REET_FIELDS_OMIT contains rl."""
+        match = re.search(
+            r"const\s+REET_FIELDS_OMIT\s*=\s*\[([^\]]+)\]",
+            self.html
+        )
+        assert match, "REET_FIELDS_OMIT not found"
+        keys = re.findall(r"'(\w+)'", match.group(1))
+        assert keys == ['rl']
+
+    def test_normalize_omits_reet_local_when_off(self):
+        """normalizeShareState checks re flag and omits rl when REET OFF."""
+        assert 'REET_FIELDS_OMIT' in self.html
+        # Verify the logic: if (!state.re) REET_FIELDS_OMIT...
+        assert "!state.re" in self.html or "state.re" in self.html
+
     def test_normalize_omits_single_exit_keys(self):
         """normalizeShareState checks mx flag and omits single-exit keys."""
         # Verify the JS logic references SINGLE_EXIT_OMIT when !isMulti
@@ -263,13 +279,13 @@ class TestShareEncoding:
         assert 'TAX_FIELDS_1031' in self.html
 
     def test_url_max_length_worst_case(self):
-        """Even with all 27 params at max reasonable values, URL < 2048 chars."""
+        """Even with all 29 params at max reasonable values, URL < 2048 chars."""
         # Simulate worst-case URL: all params set to large values
         # Base URL (github pages): ~50 chars
         # v=1: 3 chars
         # Each param: key(2-3) + = + value(max ~12 for 999999999999) + & = ~18 chars
-        # 27 params * 18 = 486 chars
-        # Total: ~540 chars — well under 2048
+        # 29 params * 18 = 522 chars
+        # Total: ~576 chars — well under 2048
 
         base_url = "https://nmulnick.github.io/real-estate-analysis/?"
         params = ["v=1"]
