@@ -330,8 +330,10 @@ class TestShareHydration:
 
     def test_hydration_reads_url_before_toggle(self):
         """readShareStateFromURL is called before apply1031FieldLock in init."""
-        pos_read = self.html.index('readShareStateFromURL(window.location.search)')
-        pos_lock = self.html.index('apply1031FieldLock(document.getElementById')
+        # Search from the init section (Phase 1 comment) to avoid matching resetToDefaults
+        init_start = self.html.index('// Phase 1:')
+        pos_read = self.html.index('readShareStateFromURL(window.location.search)', init_start)
+        pos_lock = self.html.index('apply1031FieldLock(document.getElementById', init_start)
         assert pos_read < pos_lock, "URL read must happen before field lock"
 
     def test_default_values_only_without_url(self):
@@ -419,6 +421,50 @@ class TestSharePrintSetup:
     def test_print_report_function(self):
         assert 'function printReport()' in self.html
 
+    def test_reset_button_exists(self):
+        assert 'id="btnReset"' in self.html
+
+    def test_reset_to_defaults_function(self):
+        assert 'function resetToDefaults()' in self.html
+
     def test_clipboard_fallback(self):
         """copyShareURL has a prompt() fallback for clipboard failures."""
         assert 'prompt(' in self.html
+
+
+class TestResetBehavior:
+    """Verify resetToDefaults restores schema defaults and clears URL."""
+
+    def setup_method(self):
+        self.html = _read_html()
+        self.schema = _parse_share_schema(self.html)
+        # Extract the resetToDefaults function body
+        start = self.html.index('function resetToDefaults')
+        end = self.html.index('\n}', start) + 2
+        self.fn = self.html[start:end]
+
+    def test_reset_writes_all_schema_defaults(self):
+        """resetToDefaults iterates SHARE_SCHEMA and writes defaults via writeShareStateToDOM."""
+        assert 'writeShareStateToDOM(defaults)' in self.fn
+
+    def test_reset_applies_1031_field_lock(self):
+        """resetToDefaults calls apply1031FieldLock after writing defaults."""
+        assert 'apply1031FieldLock' in self.fn
+        assert 'apply1031DefaultValues' in self.fn
+
+    def test_reset_applies_reet_field_lock(self):
+        """resetToDefaults calls applyREETFieldLock after writing defaults."""
+        assert 'applyREETFieldLock' in self.fn
+
+    def test_reset_applies_exit_mode(self):
+        """resetToDefaults calls applyExitModeUIOnly after writing defaults."""
+        assert 'applyExitModeUIOnly' in self.fn
+
+    def test_reset_clears_url(self):
+        """resetToDefaults clears URL to clean path via history.replaceState."""
+        assert 'history.replaceState' in self.fn
+        assert 'window.location.pathname' in self.fn
+
+    def test_reset_triggers_recalculate(self):
+        """resetToDefaults calls recalculate()."""
+        assert 'recalculate()' in self.fn
