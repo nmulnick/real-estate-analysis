@@ -389,7 +389,7 @@ function getInputs() {
   const d = id => parseDollar(id);
   const multiExit = document.getElementById('in_multi_exit').checked;
   const singleExit = d('in_exit_single');
-  const inputs = {
+  return {
     grossSale: d('in_gross_sale'), costBasis: d('in_cost_basis'),
     holdYears: Math.max(1, Math.round(v('in_hold'))),
     reinvRate: v('in_reinv') / 100, discRate: v('in_disc') / 100,
@@ -398,7 +398,9 @@ function getInputs() {
     exitBull: multiExit ? d('in_exit_bull') : singleExit,
     exitBase: multiExit ? d('in_exit_base') : singleExit,
     exitBear: multiExit ? d('in_exit_bear') : singleExit,
-    wtBull: 0, wtBase: 1, wtBear: 0,  // overwritten below if multiExit
+    wtBull: v('in_wt_bull') / 100,
+    wtBase: v('in_wt_base') / 100,
+    wtBear: v('in_wt_bear') / 100,
     initCarry: d('in_carry'), carryEsc: v('in_carry_esc') / 100,
     noiP1: d('in_noi_p1'), noiP2: d('in_noi_p2'), p1End: v('in_p1_end'),
     txNow: v('in_tx_now') / 100, txFuture: v('in_tx_future') / 100,
@@ -408,56 +410,85 @@ function getInputs() {
     ordRate: v('in_ord_rate') / 100,
     depRecap: v('in_dep_recap') / 100, cumDep: d('in_cum_dep'),
   };
-  // Normalize probability weights
-  if (multiExit) {
-    let rawB = Math.max(v('in_wt_bull'), 0);
-    let rawA = Math.max(v('in_wt_base'), 0);
-    let rawR = Math.max(v('in_wt_bear'), 0);
-    const total = rawB + rawA + rawR;
-    const warn = document.getElementById('wtWarning');
-    if (total <= 0) { rawB = 0.25; rawA = 0.5; rawR = 0.25; if (warn) warn.style.display = 'block'; }
-    else if (Math.abs(total - 100) > 0.01) { rawB /= total / 100; rawA /= total / 100; rawR /= total / 100; if (warn) warn.style.display = 'block'; }
-    else { if (warn) warn.style.display = 'none'; }
-    const s = rawB + rawA + rawR;
-    inputs.wtBull = rawB / s;
-    inputs.wtBase = rawA / s;
-    inputs.wtBear = rawR / s;
-  }
-  return inputs;
 }
 
+// CALCULATION ENGINE — Codex engine (inlined)
+const toFiniteNumber = (value, fallback) => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : fallback;
+};
+
+const maxZero = (value) => Math.max(toFiniteNumber(value, 0), 0);
+
+const IRR_GRID = [
+  -0.9999, -0.99, -0.95, -0.9, -0.75, -0.5, -0.25, -0.1, -0.05,
+  0, 0.02, 0.04, 0.06, 0.08, 0.1, 0.15, 0.2, 0.3, 0.5, 0.75,
+  1, 1.5, 2, 3, 5,
+];
+
+const EPSILON = 1e-9;
+
 function calcCGTax(gain, dep, p, fedOverride) {
-  // gain = net proceeds - ORIGINAL cost basis (caller computes this way)
-  // dep = cumulative depreciation claimed
-  // Adjusted basis = costBasis - cumDep, so true recognized gain = gain + dep
   const fed = fedOverride !== undefined ? fedOverride : p.fedCG;
-  const totalGain = gain + dep;  // gain above adjusted basis
-  if (totalGain <= 0) return 0;
-  let tax = 0;
-  // Depreciation recapture: taxed at recapture rate, capped by recognized gain
-  const recapture = Math.min(dep, totalGain);
-  if (recapture > 0) tax += recapture * p.depRecap;
-  // Remaining capital gain above original basis
-  const capGain = Math.max(totalGain - dep, 0);
-  tax += capGain * (fed + p.niit);
-  if (p.waEnabled && totalGain > p.waThreshold) tax += (totalGain - p.waThreshold) * p.waRate;
+  const recognizedGain = maxZero(gain);
+  const depreciation = maxZero(dep);
+  if (recognizedGain <= 0) return 0;
+  const recaptureGain = Math.min(depreciation, recognizedGain);
+  const capitalGain = Math.max(recognizedGain - recaptureGain, 0);
+  let tax = (recaptureGain * p.depRecap) + (capitalGain * (fed + p.niit));
+  if (p.waEnabled && capitalGain > p.waThreshold) {
+    tax += (capitalGain - p.waThreshold) * p.waRate;
+  }
   return tax;
 }
 
-function calcA(p, reinvOverride, txOverride, fedOverride) {
+function adjustedBasis(p) {
+  return toFiniteNumber(p.costBasis, 0) - maxZero(p.cumDep);
+}
+
+function calcDisposition(grossPrice, txRate, p, fedOverride) {
+  const safeGrossPrice = maxZero(grossPrice);
+  const safeTxRate = maxZero(txRate);
+  const txCosts = safeGrossPrice * safeTxRate;
+  const netProceeds = safeGrossPrice - txCosts;
+  const basis = adjustedBasis(p);
+  const recognizedGain = Math.max(netProceeds - basis, 0);
+  const tax = calcCGTax(recognizedGain, p.cumDep, p, fedOverride);
+  return {
+    grossPrice: safeGrossPrice, txCosts, netProceeds,
+    adjustedBasis: basis, recognizedGain, tax,
+    afterTaxProceeds: netProceeds - tax,
+  };
+}
+
+function calcAFromGrossSale(grossSale, p, reinvOverride, txOverride, fedOverride) {
   const reinv = reinvOverride !== undefined ? reinvOverride : p.reinvRate;
   const txRate = txOverride !== undefined ? txOverride : p.txNow;
   const fed = fedOverride !== undefined ? fedOverride : p.fedCG;
-  const txCosts = p.grossSale * txRate;
-  const netSale = p.grossSale - txCosts;
-  const saleGain = netSale - p.costBasis;
-  const saleTax = calcCGTax(Math.max(saleGain, 0), p.cumDep, p, fed);
-  const atProceeds = netSale - saleTax;
+  const sale = calcDisposition(grossSale, txRate, p, fed);
+  const atProceeds = sale.afterTaxProceeds;
   const fvGross = atProceeds * Math.pow(1 + reinv, p.holdYears);
-  const invGain = fvGross - atProceeds;
+  const invGain = Math.max(fvGross - atProceeds, 0);
   const invTax = calcCGTax(invGain, 0, p, fed);
   const fvAT = fvGross - invTax;
-  return { grossSale: p.grossSale, txCosts, netSale, saleGain, saleTax, atProceeds, fvGross, invGain, invTax, fvAT, npv: atProceeds };
+  return {
+    grossSale: sale.grossPrice, txCosts: sale.txCosts, netSale: sale.netProceeds,
+    adjustedBasis: sale.adjustedBasis, saleGain: sale.recognizedGain, saleTax: sale.tax,
+    atProceeds, fvGross, invGain, invTax, fvAT, npv: atProceeds,
+  };
+}
+
+function calcA(p, reinvOverride, txOverride, fedOverride) {
+  return calcAFromGrossSale(p.grossSale, p, reinvOverride, txOverride, fedOverride);
+}
+
+function leaseForYear(year, p1End, noi1, noi2) {
+  if (year <= Math.floor(p1End)) return noi1;
+  if (year === Math.ceil(p1End) && p1End !== Math.floor(p1End)) {
+    const frac1 = p1End - Math.floor(p1End);
+    return (noi1 * frac1) + (noi2 * (1 - frac1));
+  }
+  return noi2;
 }
 
 function calcB(exitPrice, p, reinvOverride, discOverride, txOverride, carryOverride, noiP1Override, fedOverride, ordOverride, noiP2Override) {
@@ -475,61 +506,241 @@ function calcB(exitPrice, p, reinvOverride, discOverride, txOverride, carryOverr
   const annual = [];
   for (let yr = 1; yr <= p.holdYears; yr++) {
     const carry = initC * Math.pow(1 + p.carryEsc, yr - 1);
-    let lease;
-    if (yr <= Math.floor(p1End)) {
-      lease = noi1;
-    } else if (yr === Math.ceil(p1End) && p1End !== Math.floor(p1End)) {
-      const frac1 = p1End - Math.floor(p1End);
-      lease = noi1 * frac1 + noi2 * (1 - frac1);
-    } else {
-      lease = noi2;
-    }
+    const lease = leaseForYear(yr, p1End, noi1, noi2);
     const netPre = lease - carry;
     const incTax = netPre > 0 ? netPre * ord : 0;
     const netAT = netPre > 0 ? netPre - incTax : netPre;
-    compCF = compCF * (1 + reinv) + netAT;
+    compCF = (compCF * (1 + reinv)) + netAT;
     npvCF += netAT / Math.pow(1 + disc, yr);
     annual.push({ yr, carry, lease, netPre, incTax, netAT, compCF });
   }
-  const exitTx = exitPrice * txRate;
-  const netExit = exitPrice - exitTx;
-  const exitGain = netExit - p.costBasis;
-  const exitTax = calcCGTax(Math.max(exitGain, 0), p.cumDep, p, fed);
-  const netExitAT = netExit - exitTax;
-  const totalFV = netExitAT + compCF;
-  const pvExit = netExitAT / Math.pow(1 + disc, p.holdYears);
+  const exit = calcDisposition(exitPrice, txRate, p, fed);
+  const totalFV = exit.afterTaxProceeds + compCF;
+  const pvExit = exit.afterTaxProceeds / Math.pow(1 + disc, p.holdYears);
   const totalNPV = npvCF + pvExit;
-  return { exitPrice, exitTx, netExit, exitGain, exitTax, netExitAT, compCF, totalFV, totalNPV, npvCF, pvExit, annual };
+  return {
+    exitPrice: exit.grossPrice, exitTx: exit.txCosts, netExit: exit.netProceeds,
+    adjustedBasis: exit.adjustedBasis, exitGain: exit.recognizedGain, exitTax: exit.tax,
+    netExitAT: exit.afterTaxProceeds, compCF, totalFV, totalNPV, npvCF, pvExit, annual,
+  };
+}
+
+function buildCashFlows(opp, b, p) {
+  const cf = [-opp];
+  for (let i = 0; i < b.annual.length; i++) {
+    const d = b.annual[i];
+    let value = d.netAT;
+    if (d.yr === p.holdYears) value += b.netExitAT;
+    cf.push(value);
+  }
+  return cf;
+}
+
+function countSignChanges(values) {
+  let previousSign = 0, changes = 0;
+  for (let i = 0; i < values.length; i++) {
+    const value = values[i];
+    if (Math.abs(value) <= EPSILON) continue;
+    const currentSign = value > 0 ? 1 : -1;
+    if (previousSign !== 0 && currentSign !== previousSign) changes++;
+    previousSign = currentSign;
+  }
+  return changes;
+}
+
+function npvAtRate(cashFlows, rate) {
+  if (rate <= -1) return NaN;
+  let total = 0;
+  for (let t = 0; t < cashFlows.length; t++) {
+    total += cashFlows[t] / Math.pow(1 + rate, t);
+  }
+  return total;
+}
+
+function bisectIRR(cashFlows, lo, hi) {
+  let loNPV = npvAtRate(cashFlows, lo);
+  for (let i = 0; i < 200; i++) {
+    const mid = (lo + hi) / 2;
+    const midNPV = npvAtRate(cashFlows, mid);
+    if (!Number.isFinite(midNPV)) return null;
+    if (Math.abs(midNPV) <= 1e-7 || Math.abs(hi - lo) <= 1e-10) return mid;
+    if ((loNPV < 0 && midNPV < 0) || (loNPV > 0 && midNPV > 0)) {
+      lo = mid; loNPV = midNPV;
+    } else {
+      hi = mid;
+    }
+  }
+  return (lo + hi) / 2;
 }
 
 function calcIRR(opp, b, p) {
-  const cf = [-opp];
-  for (const d of b.annual) {
-    let v = d.netAT;
-    if (d.yr === p.holdYears) v += b.netExitAT;
-    cf.push(v);
+  const cashFlows = buildCashFlows(opp, b, p);
+  let hasPositive = false, hasNegative = false;
+  for (let i = 0; i < cashFlows.length; i++) {
+    if (cashFlows[i] > EPSILON) hasPositive = true;
+    else if (cashFlows[i] < -EPSILON) hasNegative = true;
   }
-  // Check for sign change — if all CFs are same sign, no valid IRR
-  let hasPos = false, hasNeg = false;
-  for (const c of cf) { if (c > 0) hasPos = true; if (c < 0) hasNeg = true; }
-  if (!hasPos || !hasNeg) return NaN;
-  // Newton-Raphson with bounds clamping
-  let r = 0.08;
-  for (let i = 0; i < 1000; i++) {
-    let npv = 0, dnpv = 0;
-    for (let t = 0; t < cf.length; t++) {
-      npv += cf[t] / Math.pow(1 + r, t);
-      dnpv += -t * cf[t] / Math.pow(1 + r, t + 1);
+  if (!hasPositive || !hasNegative) return null;
+  if (countSignChanges(cashFlows) > 1) return null;
+
+  let prevRate = IRR_GRID[0];
+  let prevNPV = npvAtRate(cashFlows, prevRate);
+  if (!Number.isFinite(prevNPV)) {
+    prevNPV = null;
+  } else if (Math.abs(prevNPV) <= 1e-7) {
+    return prevRate;
+  }
+
+  for (let j = 1; j < IRR_GRID.length; j++) {
+    const currentRate = IRR_GRID[j];
+    const currentNPV = npvAtRate(cashFlows, currentRate);
+    if (!Number.isFinite(currentNPV)) continue;
+    if (Math.abs(currentNPV) <= 1e-7) return currentRate;
+    if (prevNPV !== null && ((prevNPV < 0 && currentNPV > 0) || (prevNPV > 0 && currentNPV < 0))) {
+      return bisectIRR(cashFlows, prevRate, currentRate);
     }
-    if (Math.abs(dnpv) < 1e-14) break;
-    let rn = r - npv / dnpv;
-    // Clamp to prevent wild divergence
-    if (rn < -0.99) rn = -0.99;
-    if (rn > 10) rn = 10;
-    if (Math.abs(rn - r) < 1e-8) return (rn > -0.99 && rn < 10) ? rn : NaN;
-    r = rn;
+    prevRate = currentRate;
+    prevNPV = currentNPV;
   }
-  return (r > -0.99 && r < 10) ? r : NaN;
+  return null;
+}
+
+function normalizeExitScenarioWeights(p) {
+  if (!p.multiExit) {
+    return {
+      scenarios: [{ kind: 'exit', label: 'Exit', price: maxZero(p.exitSingle), wt: 1, rawWeight: 1 }],
+      notice: '',
+    };
+  }
+  const rawScenarios = [
+    { kind: 'bull', label: 'Bull', price: maxZero(p.exitBull), rawWeight: maxZero(p.wtBull) },
+    { kind: 'base', label: 'Base', price: maxZero(p.exitBase), rawWeight: maxZero(p.wtBase) },
+    { kind: 'bear', label: 'Bear', price: maxZero(p.exitBear), rawWeight: maxZero(p.wtBear) },
+  ];
+  let totalWeight = 0;
+  for (let i = 0; i < rawScenarios.length; i++) totalWeight += rawScenarios[i].rawWeight;
+
+  if (totalWeight <= EPSILON) {
+    return {
+      scenarios: rawScenarios.map(s => ({
+        kind: s.kind, label: s.label, price: s.price,
+        wt: 1 / rawScenarios.length, rawWeight: s.rawWeight,
+      })),
+      notice: 'Exit weights totaled 0%. Using equal weights across bull, base, and bear scenarios.',
+    };
+  }
+  let notice = '';
+  if (Math.abs(totalWeight - 1) > 1e-4) {
+    notice = 'Exit weights totaled ' + (totalWeight * 100).toFixed(1) + '%. Results have been normalized to 100%.';
+  }
+  return {
+    scenarios: rawScenarios.map(s => ({
+      kind: s.kind, label: s.label, price: s.price,
+      wt: s.rawWeight / totalWeight, rawWeight: s.rawWeight,
+    })),
+    notice,
+  };
+}
+
+function weightedAnnual(results) {
+  if (!results.length) return [];
+  const years = results[0].b.annual.length;
+  const annual = [];
+  for (let i = 0; i < years; i++) {
+    const item = {
+      yr: results[0].b.annual[i].yr,
+      carry: 0, lease: 0, netPre: 0, incTax: 0, netAT: 0, compCF: 0,
+    };
+    for (let j = 0; j < results.length; j++) {
+      const weight = results[j].wt;
+      const source = results[j].b.annual[i];
+      item.carry += source.carry * weight;
+      item.lease += source.lease * weight;
+      item.netPre += source.netPre * weight;
+      item.incTax += source.incTax * weight;
+      item.netAT += source.netAT * weight;
+      item.compCF += source.compCF * weight;
+    }
+    annual.push(item);
+  }
+  return annual;
+}
+
+function buildExpectedScenario(results) {
+  const summary = {
+    kind: 'expected', label: 'Expected', price: 0, wt: 1, rawWeight: 1,
+    b: {
+      exitPrice: 0, exitTx: 0, netExit: 0, adjustedBasis: 0,
+      exitGain: 0, exitTax: 0, netExitAT: 0, compCF: 0,
+      totalFV: 0, totalNPV: 0, npvCF: 0, pvExit: 0, annual: [],
+    },
+    irr: null,
+  };
+  let allIRRsValid = true, weightedIRR = 0;
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i];
+    const weight = result.wt;
+    summary.price += result.price * weight;
+    summary.b.exitPrice += result.b.exitPrice * weight;
+    summary.b.exitTx += result.b.exitTx * weight;
+    summary.b.netExit += result.b.netExit * weight;
+    summary.b.adjustedBasis += result.b.adjustedBasis * weight;
+    summary.b.exitGain += result.b.exitGain * weight;
+    summary.b.exitTax += result.b.exitTax * weight;
+    summary.b.netExitAT += result.b.netExitAT * weight;
+    summary.b.compCF += result.b.compCF * weight;
+    summary.b.totalFV += result.b.totalFV * weight;
+    summary.b.totalNPV += result.b.totalNPV * weight;
+    summary.b.npvCF += result.b.npvCF * weight;
+    summary.b.pvExit += result.b.pvExit * weight;
+    if (result.irr === null || !Number.isFinite(result.irr)) {
+      allIRRsValid = false;
+    } else {
+      weightedIRR += result.irr * weight;
+    }
+  }
+  summary.b.annual = weightedAnnual(results);
+  summary.irr = allIRRsValid ? weightedIRR : null;
+  return summary;
+}
+
+function evaluateExitScenarios(p, a) {
+  const weightInfo = normalizeExitScenarioWeights(p);
+  const baseResults = weightInfo.scenarios.map(scenario => {
+    const b = calcB(scenario.price, p);
+    return {
+      kind: scenario.kind, label: scenario.label, price: scenario.price,
+      wt: scenario.wt, rawWeight: scenario.rawWeight, b,
+      irr: calcIRR(a.atProceeds, b, p),
+    };
+  });
+  const summary = baseResults.length > 1 ? buildExpectedScenario(baseResults) : baseResults[0];
+  const displayResults = baseResults.length > 1 ? baseResults.concat([summary]) : baseResults.slice();
+  return {
+    baseResults, displayResults, summary,
+    weightNotice: weightInfo.notice, scenarioDefs: weightInfo.scenarios,
+  };
+}
+
+function calcBreakevenSalePrice(targetFV, p) {
+  if (!Number.isFinite(targetFV)) return { value: null, status: 'invalid_target' };
+  const zeroSaleFV = calcAFromGrossSale(0, p).fvAT;
+  if (targetFV <= zeroSaleFV + EPSILON) return { value: 0, status: 'zero_sale_beats_target' };
+  let lo = 0;
+  let hi = Math.max(maxZero(p.grossSale), 1);
+  let hiFV = calcAFromGrossSale(hi, p).fvAT;
+  for (let i = 0; i < 60 && hiFV < targetFV; i++) {
+    hi *= 2;
+    hiFV = calcAFromGrossSale(hi, p).fvAT;
+  }
+  if (hiFV < targetFV) return { value: null, status: 'unreachable' };
+  for (let j = 0; j < 120; j++) {
+    const mid = (lo + hi) / 2;
+    const midFV = calcAFromGrossSale(mid, p).fvAT;
+    if (Math.abs(midFV - targetFV) <= 0.01 || Math.abs(hi - lo) <= 0.01) return { value: mid, status: 'ok' };
+    if (midFV < targetFV) lo = mid; else hi = mid;
+  }
+  return { value: (lo + hi) / 2, status: 'ok' };
 }
 
 // ============================================================
@@ -598,27 +809,28 @@ function initCharts() {
 function recalculate() {
   const p = getInputs();
   const a = calcA(p);
-  let scenarios, bResults, irrs, pw, pwExit;
 
-  if (p.multiExit) {
-    pwExit = p.exitBull * p.wtBull + p.exitBase * p.wtBase + p.exitBear * p.wtBear;
-    scenarios = [
-      { label: 'Bull', shortLabel: 'Bull (' + fmtM(p.exitBull) + ')', price: p.exitBull, wt: p.wtBull },
-      { label: 'Base', shortLabel: 'Base (' + fmtM(p.exitBase) + ')', price: p.exitBase, wt: p.wtBase },
-      { label: 'Bear', shortLabel: 'Bear (' + fmtM(p.exitBear) + ')', price: p.exitBear, wt: p.wtBear },
-      { label: 'Prob-Wtd', shortLabel: 'Prob-Weighted', price: pwExit, wt: 1 },
-    ];
-    bResults = scenarios.map(s => ({ ...s, b: calcB(s.price, p) }));
-    irrs = bResults.map(s => ({ ...s, irr: calcIRR(a.atProceeds, s.b, p) }));
-    pw = bResults[3];
-  } else {
-    pwExit = p.exitSingle;
-    scenarios = [
-      { label: 'Exit', shortLabel: fmtM(p.exitSingle) + ' Exit', price: p.exitSingle, wt: 1 },
-    ];
-    bResults = scenarios.map(s => ({ ...s, b: calcB(s.price, p) }));
-    irrs = bResults.map(s => ({ ...s, irr: calcIRR(a.atProceeds, s.b, p) }));
-    pw = bResults[0];
+  // Use the Codex evaluateExitScenarios engine
+  const exitAnalysis = evaluateExitScenarios(p, a);
+  const bResults = exitAnalysis.displayResults;
+  const irrs = bResults; // irr is already computed in evaluateExitScenarios
+  const pw = exitAnalysis.summary;
+  const pwExit = pw.price;
+
+  // Add shortLabel for chart/table rendering
+  bResults.forEach(s => {
+    s.shortLabel = s.kind === 'expected' ? 'Expected' : s.label + ' (' + fmtM(s.price) + ')';
+  });
+
+  // Show weight warning
+  const warn = document.getElementById('wtWarning');
+  if (warn) {
+    if (exitAnalysis.weightNotice) {
+      warn.textContent = '\u26A0 ' + exitAnalysis.weightNotice;
+      warn.style.display = 'block';
+    } else {
+      warn.style.display = 'none';
+    }
   }
 
   // --- Dynamic "Year N" labels ---
@@ -641,8 +853,8 @@ function recalculate() {
   document.getElementById('kpiNPVval').style.color = npvWinner === 'B' ? 'var(--green)' : 'var(--blue)';
   document.getElementById('kpiNPVdet').textContent = fmtM(npvWinner === 'A' ? a.npv : pw.b.totalNPV) + ' vs ' + fmtM(npvWinner === 'A' ? pw.b.totalNPV : a.npv);
 
-  const pwIRR = irrs[irrs.length - 1].irr;
-  if (isNaN(pwIRR)) {
+  const pwIRR = pw.irr;
+  if (pwIRR === null) {
     document.getElementById('kpiIRRval').textContent = 'N/A';
     document.getElementById('kpiIRRval').style.color = 'var(--gray-500)';
     document.getElementById('kpiIRRdet').textContent = 'No valid IRR — cash flows don\'t recover opportunity cost';
@@ -661,33 +873,14 @@ function recalculate() {
     : 'Single exit price';
 
   // --- Breakeven Sale Price ---
-  // Find the gross sale price today (Scenario A) that produces the same after-tax FV as Scenario B.
-  // Use binary search since the tax calc is non-linear.
-  const targetFV = pw.b.totalFV;
-  let breakevenGross = NaN;
-  if (targetFV > 0) {
-    let lo = 0, hi = Math.max(targetFV * 3, 1e9);
-    for (let i = 0; i < 100; i++) {
-      const mid = (lo + hi) / 2;
-      const txC = mid * p.txNow;
-      const ns = mid - txC;
-      const sg = Math.max(ns - p.costBasis, 0);
-      const st = calcCGTax(sg, p.cumDep, p);
-      const ap = ns - st;
-      const fvG = ap * Math.pow(1 + p.reinvRate, p.holdYears);
-      const ig = fvG - ap;
-      const it = calcCGTax(Math.max(ig, 0), 0, p);
-      const fvAT = fvG - it;
-      if (fvAT < targetFV) lo = mid; else hi = mid;
-    }
-    breakevenGross = Math.max((lo + hi) / 2, 0);
-  }
+  const beResult = calcBreakevenSalePrice(pw.b.totalFV, p);
+  const breakevenGross = beResult.value;
 
   document.getElementById('kpiBElbl').innerHTML = 'Breakeven Sale Price <span class="tip">?<span class="tiptext">The minimum gross sale price you\'d need today (Scenario A) to match Scenario B\'s after-tax future value. If your current offer is below this, holding is favored.</span></span>';
-  if (isNaN(breakevenGross)) {
+  if (breakevenGross === null) {
     document.getElementById('kpiBEval').textContent = 'N/A';
     document.getElementById('kpiBEval').style.color = 'var(--gray-500)';
-    document.getElementById('kpiBEdet').textContent = 'Scenario B has no positive future value';
+    document.getElementById('kpiBEdet').textContent = beResult.status === 'unreachable' ? 'Target FV is unreachable' : 'Scenario B has no positive future value';
   } else {
     const gap = p.grossSale - breakevenGross;
     const aboveBelow = gap >= 0 ? 'above' : 'below';
@@ -710,8 +903,8 @@ function recalculate() {
   chartNPV.update();
 
   chartIRR.data.labels = labels4;
-  chartIRR.data.datasets[0].data = irrs.map(s => +(s.irr * 100).toFixed(2));
-  chartIRR.data.datasets[0].backgroundColor = irrs.map(s => s.irr > p.reinvRate ? greenA : redA);
+  chartIRR.data.datasets[0].data = irrs.map(s => s.irr !== null ? +(s.irr * 100).toFixed(2) : 0);
+  chartIRR.data.datasets[0].backgroundColor = irrs.map(s => (s.irr !== null && s.irr > p.reinvRate) ? greenA : redA);
   chartIRR.update();
 
   const cfLabels = pw.b.annual.map(d => d.yr);
@@ -758,13 +951,14 @@ function recalculate() {
     }).join('') + '</tr>';
 
   // --- Table: NPV ---
+  const lastIdx = bResults.length - 1;
   const npvHead = '<tr><th></th><th class="num">PV of CFs</th><th class="num">PV of Exit</th><th class="num">Total NPV</th><th class="num">vs Scenario A</th></tr>';
   const npvRowA = '<tr style="background:var(--blue-light)"><td style="font-weight:600">Scenario A</td><td class="num">—</td><td class="num">—</td><td class="num" style="font-weight:700">' + fmtM(a.npv) + '</td><td class="num">—</td></tr>';
   const npvRowsB = bResults.map((s, i) => {
     const d = s.b.totalNPV - a.npv;
     const w = d > 0 ? 'B' : 'A';
-    const cls = i === 3 ? ' class="row-hl"' : '';
-    return '<tr' + cls + '><td' + (i === 3 ? ' style="font-weight:600"' : '') + '>B — ' + s.shortLabel + '</td><td class="num">' + fmtM(s.b.npvCF) + '</td><td class="num">' + fmtM(s.b.pvExit) + '</td><td class="num" style="font-weight:600">' + fmtM(s.b.totalNPV) + '</td><td class="num cell-' + w.toLowerCase() + '">' + w + ' +' + fmtM(Math.abs(d)) + '</td></tr>';
+    const cls = i === lastIdx ? ' class="row-hl"' : '';
+    return '<tr' + cls + '><td' + (i === lastIdx ? ' style="font-weight:600"' : '') + '>B — ' + s.shortLabel + '</td><td class="num">' + fmtM(s.b.npvCF) + '</td><td class="num">' + fmtM(s.b.pvExit) + '</td><td class="num" style="font-weight:600">' + fmtM(s.b.totalNPV) + '</td><td class="num cell-' + w.toLowerCase() + '">' + w + ' +' + fmtM(Math.abs(d)) + '</td></tr>';
   }).join('');
   document.getElementById('tblNPV').innerHTML = npvHead + npvRowA + npvRowsB;
 
@@ -772,9 +966,9 @@ function recalculate() {
   document.getElementById('irrSubtitle').textContent = 'Opportunity cost (Year 0): ' + fmtD(a.atProceeds) + ' — after-tax proceeds foregone by not selling today.';
   const irrHead = '<tr><th>Exit Scenario</th><th class="num">IRR</th><th class="num">vs ' + fmtP1(p.reinvRate) + ' Reinvestment</th><th>Decision</th></tr>';
   const irrRows = irrs.map((s, i) => {
-    const cls = i === 3 ? ' class="row-hl"' : '';
-    const bold = i === 3 ? ' style="font-weight:600"' : '';
-    if (isNaN(s.irr)) {
+    const cls = i === lastIdx ? ' class="row-hl"' : '';
+    const bold = i === lastIdx ? ' style="font-weight:600"' : '';
+    if (s.irr === null) {
       return '<tr' + cls + '><td' + bold + '>' + s.shortLabel + '</td><td class="num" style="font-weight:700;color:var(--gray-500)">N/A</td><td class="num" style="color:var(--gray-500)">—</td><td style="color:var(--gray-500)">No valid IRR</td></tr>';
     }
     const spread = s.irr - p.reinvRate;
