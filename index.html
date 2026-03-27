@@ -998,7 +998,7 @@ function recalculate() {
   ].join('');
 
   // --- Sensitivity Tables ---
-  buildSens1(p, a); buildSens2(p, a, pwExit); buildSens3(p, a); buildSens4(p);
+  buildSens1(p, a); buildSens2(p, a, exitAnalysis); buildSens3(p, a); buildSens4(p);
 }
 
 function buildSens1(p) {
@@ -1017,15 +1017,21 @@ function buildSens1(p) {
   });
   document.getElementById('sensT1').innerHTML = h;
 }
-function buildSens2(p, a, pwExit) {
+function buildSens2(p, a, exitAnalysis) {
   const carries = [500e3, 1e6, 1.5e6, 2e6, 2.5e6];
   const futureNOIs = [0, 1e6, 2e6, 3e6, 4e6, 5e6];
+  const scenarioDefs = exitAnalysis.scenarioDefs;  // [{price, wt}, ...]
   let h = '<tr><th>Carry</th>' + futureNOIs.map(l => '<th>' + fmtM(l) + '</th>').join('') + '</tr>';
   carries.forEach(cv => {
     h += '<tr><td>' + fmtM(cv) + '</td>';
     futureNOIs.forEach(noi2v => {
-      const bR = calcB(pwExit, p, undefined, undefined, undefined, cv, undefined, undefined, undefined, noi2v);
-      const d = bR.totalNPV - a.npv; const w = d > 0 ? 'B' : 'A';
+      // Weight per-scenario outcomes (not just weighted price)
+      let weightedNPV = 0;
+      scenarioDefs.forEach(s => {
+        const bR = calcB(s.price, p, undefined, undefined, undefined, cv, undefined, undefined, undefined, noi2v);
+        weightedNPV += bR.totalNPV * s.wt;
+      });
+      const d = weightedNPV - a.npv; const w = d > 0 ? 'B' : 'A';
       h += '<td class="cell-' + w.toLowerCase() + '">' + w + ' +' + fmtM(Math.abs(d)) + '</td>';
     });
     h += '</tr>';
