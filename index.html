@@ -117,6 +117,7 @@
   .verdict { display: inline-block; padding: 0.25rem 0.75rem; border-radius: 16px; font-weight: 700; font-size: 0.78rem; }
   .verdict.b { background: var(--green-light); color: var(--green); }
   .verdict.a { background: var(--blue-light); color: var(--blue); }
+  .verdict.na { background: var(--gray-100); color: var(--gray-700); }
 
   /* Charts */
   .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin-bottom: 1.25rem; }
@@ -428,7 +429,27 @@ const negM = v => '−' + fmtM(Math.abs(v));
 // CHARTS (created once, updated on recalc)
 // ============================================================
 let chartFV, chartNPV, chartIRR, chartCF;
-const blueA = 'rgba(37,99,235,0.7)', greenA = 'rgba(22,163,74,0.7)', greenL = 'rgba(22,163,74,0.35)', redA = 'rgba(220,38,38,0.5)';
+const blueA = 'rgba(37,99,235,0.7)', greenA = 'rgba(22,163,74,0.7)', greenL = 'rgba(22,163,74,0.35)', redA = 'rgba(220,38,38,0.5)', grayA = 'rgba(107,114,128,0.45)';
+
+// UI helpers for cleaner rendering
+function formatScenarioShortLabel(result) {
+  if (result.kind === 'expected') return 'Expected';
+  if (result.kind === 'exit') return fmtM(result.price) + ' Exit';
+  return result.label + ' (' + fmtM(result.price) + ')';
+}
+function formatIRRValue(irr) { return irr === null ? 'N/A' : fmtP(irr); }
+function formatIRRSpread(irr, reinvRate) {
+  if (irr === null) return '—';
+  const spread = irr - reinvRate;
+  return (spread >= 0 ? '+' : '') + fmtP(spread);
+}
+function setExitWeightNotice(message) {
+  const el = document.getElementById('wtWarning');
+  if (!el) return;
+  if (!message) { el.style.display = 'none'; el.textContent = ''; return; }
+  el.style.display = 'block';
+  el.textContent = '\u26A0 ' + message;
+}
 
 function initCharts() {
   chartFV = new Chart(document.getElementById('chartFV'), {
@@ -482,28 +503,12 @@ function recalculate() {
   const p = getInputs();
   const a = calcA(p);
 
-  // Use the Codex evaluateExitScenarios engine
+  // Evaluate all exit scenarios with weighted outcomes
   const exitAnalysis = evaluateExitScenarios(p, a);
-  const bResults = exitAnalysis.displayResults;
-  const irrs = bResults; // irr is already computed in evaluateExitScenarios
-  const pw = exitAnalysis.summary;
-  const pwExit = pw.price;
-
-  // Add shortLabel for chart/table rendering
-  bResults.forEach(s => {
-    s.shortLabel = s.kind === 'expected' ? 'Expected' : s.label + ' (' + fmtM(s.price) + ')';
-  });
-
-  // Show weight warning
-  const warn = document.getElementById('wtWarning');
-  if (warn) {
-    if (exitAnalysis.weightNotice) {
-      warn.textContent = '\u26A0 ' + exitAnalysis.weightNotice;
-      warn.style.display = 'block';
-    } else {
-      warn.style.display = 'none';
-    }
-  }
+  const bResults = exitAnalysis.displayResults.map(r => ({ ...r, shortLabel: formatScenarioShortLabel(r) }));
+  const expected = exitAnalysis.summary;
+  const expectedExitPrice = expected.price;
+  setExitWeightNotice(p.multiExit ? exitAnalysis.weightNotice : '');
 
   // --- Dynamic "Year N" labels ---
   const yrLabel = 'Year ' + p.holdYears;
@@ -513,39 +518,39 @@ function recalculate() {
   document.getElementById('chartFVtitle').innerHTML = 'After-Tax Future Value (' + yrLabel + ') <span class="tip">?<span class="tiptext">Total after-tax wealth at the end of the hold period for each scenario. Compares Sell Now proceeds (compounded) vs. Hold exit + accumulated cash flows.</span></span>';
 
   // --- KPIs ---
-  const fvDiff = pw.b.totalFV - a.fvAT;
+  const fvDiff = expected.b.totalFV - a.fvAT;
   const fvWinner = fvDiff > 0 ? 'B' : 'A';
   document.getElementById('kpiFVval').textContent = (fvWinner === 'B' ? 'B +' : 'A +') + fmtM(Math.abs(fvDiff));
   document.getElementById('kpiFVval').style.color = fvWinner === 'B' ? 'var(--green)' : 'var(--blue)';
-  document.getElementById('kpiFVdet').textContent = fmtM(pw.b.totalFV) + ' vs ' + fmtM(a.fvAT);
+  document.getElementById('kpiFVdet').textContent = fmtM(expected.b.totalFV) + ' vs ' + fmtM(a.fvAT);
 
-  const npvDiff = pw.b.totalNPV - a.npv;
+  const npvDiff = expected.b.totalNPV - a.npv;
   const npvWinner = npvDiff > 0 ? 'B' : 'A';
   document.getElementById('kpiNPVval').textContent = (npvWinner === 'B' ? 'B +' : 'A +') + fmtM(Math.abs(npvDiff));
   document.getElementById('kpiNPVval').style.color = npvWinner === 'B' ? 'var(--green)' : 'var(--blue)';
-  document.getElementById('kpiNPVdet').textContent = fmtM(npvWinner === 'A' ? a.npv : pw.b.totalNPV) + ' vs ' + fmtM(npvWinner === 'A' ? pw.b.totalNPV : a.npv);
+  document.getElementById('kpiNPVdet').textContent = fmtM(npvWinner === 'A' ? a.npv : expected.b.totalNPV) + ' vs ' + fmtM(npvWinner === 'A' ? expected.b.totalNPV : a.npv);
 
-  const pwIRR = pw.irr;
-  if (pwIRR === null) {
+  const expectedIRR = expected.irr;
+  if (expectedIRR === null) {
     document.getElementById('kpiIRRval').textContent = 'N/A';
     document.getElementById('kpiIRRval').style.color = 'var(--gray-500)';
     document.getElementById('kpiIRRdet').textContent = 'No valid IRR — cash flows don\'t recover opportunity cost';
   } else {
-    document.getElementById('kpiIRRval').textContent = fmtP(pwIRR);
-    document.getElementById('kpiIRRval').style.color = pwIRR > p.reinvRate ? 'var(--green)' : 'var(--blue)';
-    document.getElementById('kpiIRRdet').textContent = (pwIRR > p.reinvRate ? 'Above' : 'Below') + ' ' + fmtP1(p.reinvRate) + ' reinv. → favors ' + (pwIRR > p.reinvRate ? 'holding' : 'selling');
+    document.getElementById('kpiIRRval').textContent = fmtP(expectedIRR);
+    document.getElementById('kpiIRRval').style.color = expectedIRR > p.reinvRate ? 'var(--green)' : 'var(--blue)';
+    document.getElementById('kpiIRRdet').textContent = (expectedIRR > p.reinvRate ? 'Above' : 'Below') + ' ' + fmtP1(p.reinvRate) + ' reinv. → favors ' + (expectedIRR > p.reinvRate ? 'holding' : 'selling');
   }
 
-  document.getElementById('kpiIRRlbl').innerHTML = (p.multiExit ? 'Hold IRR (Prob-Wtd)' : 'Hold IRR') + ' <span class="tip">?<span class="tiptext">The annualized return you effectively earn by choosing to hold instead of sell. Compare to the reinvestment rate — above means hold wins.</span></span>';
-  document.getElementById('kpiPWlbl').innerHTML = (p.multiExit ? 'Prob-Weighted Exit' : 'Exit Price') + ' <span class="tip">?<span class="tiptext">The expected sale price at the end of the hold period. If probability-weighted mode is on, this is the weighted average of all scenarios.</span></span>';
-  document.getElementById('kpiPWval').textContent = fmtM(pwExit);
+  document.getElementById('kpiIRRlbl').innerHTML = (p.multiExit ? 'Expected Hold IRR' : 'Hold IRR') + ' <span class="tip">?<span class="tiptext">The annualized return you effectively earn by choosing to hold instead of sell. Compare to the reinvestment rate — above means hold wins.</span></span>';
+  document.getElementById('kpiPWlbl').innerHTML = (p.multiExit ? 'Expected Exit Price' : 'Exit Price') + ' <span class="tip">?<span class="tiptext">The expected sale price at the end of the hold period. If probability-weighted mode is on, this is the expected exit price after weight normalization.</span></span>';
+  document.getElementById('kpiPWval').textContent = fmtM(expectedExitPrice);
   document.getElementById('kpiPWval').style.color = 'var(--gray-700)';
   document.getElementById('kpiPWdet').textContent = p.multiExit
     ? 'Bull ' + fmtM(p.exitBull) + ' · Base ' + fmtM(p.exitBase) + ' · Bear ' + fmtM(p.exitBear)
     : 'Single exit price';
 
   // --- Breakeven Sale Price ---
-  const beResult = calcBreakevenSalePrice(pw.b.totalFV, p);
+  const beResult = calcBreakevenSalePrice(expected.b.totalFV, p);
   const breakevenGross = beResult.value;
 
   document.getElementById('kpiBElbl').innerHTML = 'Breakeven Sale Price <span class="tip">?<span class="tiptext">The minimum gross sale price you\'d need today (Scenario A) to match Scenario B\'s after-tax future value. If your current offer is below this, holding is favored.</span></span>';
@@ -575,14 +580,14 @@ function recalculate() {
   chartNPV.update();
 
   chartIRR.data.labels = labels4;
-  chartIRR.data.datasets[0].data = irrs.map(s => s.irr !== null ? +(s.irr * 100).toFixed(2) : 0);
-  chartIRR.data.datasets[0].backgroundColor = irrs.map(s => (s.irr !== null && s.irr > p.reinvRate) ? greenA : redA);
+  chartIRR.data.datasets[0].data = bResults.map(s => s.irr !== null ? +(s.irr * 100).toFixed(2) : 0);
+  chartIRR.data.datasets[0].backgroundColor = bResults.map(s => s.irr === null ? grayA : (s.irr > p.reinvRate ? greenA : redA));
   chartIRR.update();
 
-  const cfLabels = pw.b.annual.map(d => d.yr);
+  const cfLabels = expected.b.annual.map(d => d.yr);
   chartCF.data.labels = cfLabels;
-  chartCF.data.datasets[0].data = pw.b.annual.map(d => +(d.netAT / 1e6).toFixed(3));
-  chartCF.data.datasets[1].data = pw.b.annual.map(d => +(d.compCF / 1e6).toFixed(1));
+  chartCF.data.datasets[0].data = expected.b.annual.map(d => +(d.netAT / 1e6).toFixed(3));
+  chartCF.data.datasets[1].data = expected.b.annual.map(d => +(d.compCF / 1e6).toFixed(1));
   chartCF.update();
 
   // --- Table: Scenario A ---
@@ -637,22 +642,22 @@ function recalculate() {
   // --- Table: IRR ---
   document.getElementById('irrSubtitle').textContent = 'Opportunity cost (Year 0): ' + fmtD(a.atProceeds) + ' — after-tax proceeds foregone by not selling today.';
   const irrHead = '<tr><th>Exit Scenario</th><th class="num">IRR</th><th class="num">vs ' + fmtP1(p.reinvRate) + ' Reinvestment</th><th>Decision</th></tr>';
-  const irrRows = irrs.map((s, i) => {
+  const irrRows = bResults.map((s, i) => {
     const cls = i === lastIdx ? ' class="row-hl"' : '';
     const bold = i === lastIdx ? ' style="font-weight:600"' : '';
     if (s.irr === null) {
-      return '<tr' + cls + '><td' + bold + '>' + s.shortLabel + '</td><td class="num" style="font-weight:700;color:var(--gray-500)">N/A</td><td class="num" style="color:var(--gray-500)">—</td><td style="color:var(--gray-500)">No valid IRR</td></tr>';
+      return '<tr' + cls + '><td' + bold + '>' + s.shortLabel + '</td><td class="num" style="font-weight:700;color:var(--gray-500)">' + formatIRRValue(s.irr) + '</td><td class="num" style="color:var(--gray-500)">' + formatIRRSpread(s.irr, p.reinvRate) + '</td><td><span class="verdict na">N/A</span></td></tr>';
     }
     const spread = s.irr - p.reinvRate;
     const hold = spread > 0;
-    return '<tr' + cls + '><td' + bold + '>' + s.shortLabel + '</td><td class="num" style="font-weight:700">' + fmtP(s.irr) + '</td><td class="num cell-' + (hold ? 'b' : 'a') + '">' + (spread >= 0 ? '+' : '') + fmtP(spread) + '</td><td><span class="verdict ' + (hold ? 'b' : 'a') + '">' + (hold ? 'HOLD' : 'SELL') + '</span></td></tr>';
+    return '<tr' + cls + '><td' + bold + '>' + s.shortLabel + '</td><td class="num" style="font-weight:700">' + formatIRRValue(s.irr) + '</td><td class="num cell-' + (hold ? 'b' : 'a') + '">' + formatIRRSpread(s.irr, p.reinvRate) + '</td><td><span class="verdict ' + (hold ? 'b' : 'a') + '">' + (hold ? 'HOLD' : 'SELL') + '</span></td></tr>';
   }).join('');
   document.getElementById('tblIRR').innerHTML = irrHead + irrRows;
 
   // --- Table: Annual CF ---
   const cfHead = '<tr><th class="num">Year</th><th class="num">Carrying</th><th class="num">Lease</th><th class="num">Net Pre-Tax</th><th class="num">Income Tax</th><th class="num">Net After-Tax</th><th class="num">Compounded</th></tr>';
-  const cfRows = pw.b.annual.map((d, i) => {
-    const cls = i === pw.b.annual.length - 1 ? ' class="row-total"' : '';
+  const cfRows = expected.b.annual.map((d, i) => {
+    const cls = i === expected.b.annual.length - 1 ? ' class="row-total"' : '';
     return '<tr' + cls + '><td class="num">' + d.yr + '</td><td class="num">' + fmtM(d.carry) + '</td><td class="num">' + fmtM(d.lease) + '</td><td class="num">' + fmtM(d.netPre) + '</td><td class="num" style="color:var(--red)">' + negM(d.incTax) + '</td><td class="num">' + fmtM(d.netAT) + '</td><td class="num">' + fmtM(d.compCF) + '</td></tr>';
   }).join('');
   document.getElementById('tblCF').innerHTML = cfHead + cfRows;
