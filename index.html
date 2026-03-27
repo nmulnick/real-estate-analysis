@@ -117,6 +117,7 @@
   .verdict { display: inline-block; padding: 0.25rem 0.75rem; border-radius: 16px; font-weight: 700; font-size: 0.78rem; }
   .verdict.b { background: var(--green-light); color: var(--green); }
   .verdict.a { background: var(--blue-light); color: var(--blue); }
+  .verdict.na { background: var(--gray-100); color: var(--gray-700); }
 
   /* Charts */
   .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin-bottom: 1.25rem; }
@@ -203,14 +204,14 @@
   <div class="field"><label>Cost Basis ($) <span class="tip">?<span class="tiptext">Your original purchase price plus capital improvements. Used to calculate capital gains on sale.</span></span></label><input type="text" id="in_cost_basis" data-dollar data-raw="8425000" value="8,425,000"></div>
   <div class="field-row">
     <div class="field"><label>Hold Period (yrs) <span class="tip">?<span class="tiptext">Number of years to hold before selling in Scenario B. Also the reinvestment horizon for Scenario A.</span></span></label><input type="number" id="in_hold" value="10" step="1" min="1" max="30"></div>
-    <div class="field"><label>Reinvestment Rate (%) <span class="tip">?<span class="tiptext">The annual return you'd earn by investing the Scenario A sale proceeds (e.g., in stocks, bonds, or another property).</span></span></label><input type="number" id="in_reinv" value="6" step="0.5"></div>
+    <div class="field"><label>Reinvestment Rate (%) <span class="tip">?<span class="tiptext">The annual return you'd earn on Scenario A's replacement real estate after selling today. This model treats 1031-on reinvestment as a continued like-kind real estate chain.</span></span></label><input type="number" id="in_reinv" value="6" step="0.5"></div>
   </div>
   <div class="field"><label>Discount Rate (%) <span class="tip">?<span class="tiptext">Used for NPV calculations. Represents your required rate of return — the minimum return you'd accept to justify the risk of holding.</span></span></label><input type="number" id="in_disc" value="7" step="0.5"></div>
 
   <div class="section-label" id="lbl_exit_section">Exit Price (Year 10)</div>
   <div class="field" id="exit_single_wrap"><label>Exit Price ($) <span class="tip">?<span class="tiptext">The expected gross sale price when you sell the property at the end of the hold period.</span></span></label><input type="text" id="in_exit_single" data-dollar data-raw="200000000" value="200,000,000"></div>
   <div class="toggle-field" style="margin-top:0.4rem">
-    <label>Probability-weighted scenarios <span class="tip">?<span class="tiptext">Enable to model bull, base, and bear exit prices with probability weights. The analysis uses a weighted average and shows each sub-scenario.</span></span></label>
+    <label>Probability-weighted scenarios <span class="tip">?<span class="tiptext">Enable to model bull, base, and bear exit prices with probability weights. Results are computed from weighted scenario outcomes, and weights are normalized to 100% if needed.</span></span></label>
     <label class="toggle"><input type="checkbox" id="in_multi_exit"><span class="slider"></span></label>
   </div>
   <div id="exit_multi" style="display:none">
@@ -226,6 +227,7 @@
       <div class="field"><label>Bear Exit ($)</label><input type="text" id="in_exit_bear" data-dollar data-raw="140000000" value="140,000,000"></div>
       <div class="field"><label>Wt (%)</label><input type="number" id="in_wt_bear" value="25" step="5"></div>
     </div>
+    <p id="exitWeightNotice" style="display:none;font-size:0.72rem;color:var(--orange);margin-top:0.4rem"></p>
   </div>
 
   <div class="section-label">Carrying Costs</div>
@@ -283,7 +285,7 @@
   <div class="kpi" id="kpiFV"><div class="label" id="kpiFVlbl">FV Winner (Year 10) <span class="tip">?<span class="tiptext">Which scenario produces more total wealth at the end of the hold period, after all taxes.</span></span></div><div class="value" id="kpiFVval"></div><div class="detail" id="kpiFVdet"></div></div>
   <div class="kpi" id="kpiNPV"><div class="label">NPV Winner <span class="tip">?<span class="tiptext">Which scenario is worth more in today's dollars, discounting all future cash flows at the discount rate.</span></span></div><div class="value" id="kpiNPVval"></div><div class="detail" id="kpiNPVdet"></div></div>
   <div class="kpi" id="kpiIRR"><div class="label" id="kpiIRRlbl">Hold IRR <span class="tip">?<span class="tiptext">The annualized return you effectively earn by choosing to hold instead of sell. Compare to the reinvestment rate — above means hold wins.</span></span></div><div class="value" id="kpiIRRval"></div><div class="detail" id="kpiIRRdet"></div></div>
-  <div class="kpi"><div class="label" id="kpiPWlbl">Exit Price <span class="tip">?<span class="tiptext">The expected sale price at the end of the hold period. If probability-weighted mode is on, this is the weighted average of all scenarios.</span></span></div><div class="value" id="kpiPWval"></div><div class="detail" id="kpiPWdet"></div></div>
+  <div class="kpi"><div class="label" id="kpiPWlbl">Exit Price <span class="tip">?<span class="tiptext">The expected sale price at the end of the hold period. If probability-weighted mode is on, this is the expected exit price after weight normalization.</span></span></div><div class="value" id="kpiPWval"></div><div class="detail" id="kpiPWdet"></div></div>
   <div class="kpi"><div class="label" id="kpiBElbl">Breakeven Sale Price <span class="tip">?<span class="tiptext">The minimum gross sale price today that would match Scenario B's after-tax future value. If the current offer is below this, holding is favored.</span></span></div><div class="value" id="kpiBEval"></div><div class="detail" id="kpiBEdet"></div></div>
 </div>
 
@@ -347,10 +349,13 @@
 </div>
 </div>
 
+<script src="engine.js"></script>
 <script>
 // ============================================================
 // ENGINE — mirrors the Python logic exactly
 // ============================================================
+const Engine = window.RealEstateEngine;
+
 // --- Dollar-field formatting helpers ---
 function addCommas(numStr) {
   const parts = numStr.split('.');
@@ -411,95 +416,39 @@ function getInputs() {
   };
 }
 
-function calcCGTax(gain, dep, p, fedOverride) {
-  const fed = fedOverride !== undefined ? fedOverride : p.fedCG;
-  if (gain <= 0 && dep <= 0) return 0;
-  let tax = 0;
-  if (dep > 0) tax += dep * p.depRecap;
-  const ordGain = gain > 0 ? Math.max(gain - dep, 0) : 0;
-  tax += ordGain * (fed + p.niit);
-  if (p.waEnabled && gain > p.waThreshold) tax += (gain - p.waThreshold) * p.waRate;
-  return tax;
-}
-
-function calcA(p, reinvOverride, txOverride, fedOverride) {
-  const reinv = reinvOverride !== undefined ? reinvOverride : p.reinvRate;
-  const txRate = txOverride !== undefined ? txOverride : p.txNow;
-  const fed = fedOverride !== undefined ? fedOverride : p.fedCG;
-  const txCosts = p.grossSale * txRate;
-  const netSale = p.grossSale - txCosts;
-  const saleGain = netSale - p.costBasis;
-  const saleTax = calcCGTax(Math.max(saleGain, 0), p.cumDep, p, fed);
-  const atProceeds = netSale - saleTax;
-  const fvGross = atProceeds * Math.pow(1 + reinv, p.holdYears);
-  const invGain = fvGross - atProceeds;
-  const invTax = calcCGTax(invGain, 0, p, fed);
-  const fvAT = fvGross - invTax;
-  return { grossSale: p.grossSale, txCosts, netSale, saleGain, saleTax, atProceeds, fvGross, invGain, invTax, fvAT, npv: atProceeds };
-}
-
+function calcCGTax(gain, dep, p, fedOverride) { return Engine.calcCGTax(gain, dep, p, fedOverride); }
+function calcAFromGrossSale(grossSale, p, reinvOverride, txOverride, fedOverride) { return Engine.calcAFromGrossSale(grossSale, p, reinvOverride, txOverride, fedOverride); }
+function calcA(p, reinvOverride, txOverride, fedOverride) { return Engine.calcA(p, reinvOverride, txOverride, fedOverride); }
 function calcB(exitPrice, p, reinvOverride, discOverride, txOverride, carryOverride, noiP1Override, fedOverride, ordOverride, noiP2Override) {
-  const reinv = reinvOverride !== undefined ? reinvOverride : p.reinvRate;
-  const disc = discOverride !== undefined ? discOverride : p.discRate;
-  const txRate = txOverride !== undefined ? txOverride : p.txFuture;
-  const initC = carryOverride !== undefined ? carryOverride : p.initCarry;
-  const noi1 = noiP1Override !== undefined ? noiP1Override : p.noiP1;
-  const noi2 = noiP2Override !== undefined ? noiP2Override : p.noiP2;
-  const p1End = p.p1End;
-  const fed = fedOverride !== undefined ? fedOverride : p.fedCG;
-  const ord = ordOverride !== undefined ? ordOverride : p.ordRate;
+  return Engine.calcB(exitPrice, p, reinvOverride, discOverride, txOverride, carryOverride, noiP1Override, fedOverride, ordOverride, noiP2Override);
+}
+function calcIRR(opp, b, p) { return Engine.calcIRR(opp, b, p); }
 
-  let compCF = 0, npvCF = 0;
-  const annual = [];
-  for (let yr = 1; yr <= p.holdYears; yr++) {
-    const carry = initC * Math.pow(1 + p.carryEsc, yr - 1);
-    let lease;
-    if (yr <= Math.floor(p1End)) {
-      lease = noi1;
-    } else if (yr === Math.ceil(p1End) && p1End !== Math.floor(p1End)) {
-      const frac1 = p1End - Math.floor(p1End);
-      lease = noi1 * frac1 + noi2 * (1 - frac1);
-    } else {
-      lease = noi2;
-    }
-    const netPre = lease - carry;
-    const incTax = netPre > 0 ? netPre * ord : 0;
-    const netAT = netPre > 0 ? netPre - incTax : netPre;
-    compCF = compCF * (1 + reinv) + netAT;
-    npvCF += netAT / Math.pow(1 + disc, yr);
-    annual.push({ yr, carry, lease, netPre, incTax, netAT, compCF });
+function setExitWeightNotice(message) {
+  const el = document.getElementById('exitWeightNotice');
+  if (!message) {
+    el.style.display = 'none';
+    el.textContent = '';
+    return;
   }
-  const exitTx = exitPrice * txRate;
-  const netExit = exitPrice - exitTx;
-  const exitGain = netExit - p.costBasis;
-  const exitTax = calcCGTax(Math.max(exitGain, 0), p.cumDep, p, fed);
-  const netExitAT = netExit - exitTax;
-  const totalFV = netExitAT + compCF;
-  const pvExit = netExitAT / Math.pow(1 + disc, p.holdYears);
-  const totalNPV = npvCF + pvExit;
-  return { exitPrice, exitTx, netExit, exitGain, exitTax, netExitAT, compCF, totalFV, totalNPV, npvCF, pvExit, annual };
+  el.style.display = 'block';
+  el.textContent = message;
 }
 
-function calcIRR(opp, b, p) {
-  const cf = [-opp];
-  for (const d of b.annual) {
-    let v = d.netAT;
-    if (d.yr === p.holdYears) v += b.netExitAT;
-    cf.push(v);
-  }
-  let r = 0.08;
-  for (let i = 0; i < 1000; i++) {
-    let npv = 0, dnpv = 0;
-    for (let t = 0; t < cf.length; t++) {
-      npv += cf[t] / Math.pow(1 + r, t);
-      dnpv += -t * cf[t] / Math.pow(1 + r, t + 1);
-    }
-    if (Math.abs(dnpv) < 1e-14) break;
-    const rn = r - npv / dnpv;
-    if (Math.abs(rn - r) < 1e-8) return rn;
-    r = rn;
-  }
-  return r;
+function formatScenarioShortLabel(result) {
+  if (result.kind === 'expected') return 'Expected';
+  if (result.kind === 'exit') return fmtM(result.price) + ' Exit';
+  return result.label + ' (' + fmtM(result.price) + ')';
+}
+
+function formatIRRValue(value) {
+  return value === null ? 'N/A' : fmtP(value);
+}
+
+function formatIRRSpread(value, reinvestRate) {
+  if (value === null) return 'N/A';
+  const spread = value - reinvestRate;
+  return (spread >= 0 ? '+' : '') + fmtP(spread);
 }
 
 // ============================================================
@@ -515,7 +464,7 @@ const negM = v => '−' + fmtM(Math.abs(v));
 // CHARTS (created once, updated on recalc)
 // ============================================================
 let chartFV, chartNPV, chartIRR, chartCF;
-const blueA = 'rgba(37,99,235,0.7)', greenA = 'rgba(22,163,74,0.7)', greenL = 'rgba(22,163,74,0.35)', redA = 'rgba(220,38,38,0.5)';
+const blueA = 'rgba(37,99,235,0.7)', greenA = 'rgba(22,163,74,0.7)', greenL = 'rgba(22,163,74,0.35)', redA = 'rgba(220,38,38,0.5)', grayA = 'rgba(107,114,128,0.45)';
 
 function initCharts() {
   chartFV = new Chart(document.getElementById('chartFV'), {
@@ -568,28 +517,14 @@ function initCharts() {
 function recalculate() {
   const p = getInputs();
   const a = calcA(p);
-  let scenarios, bResults, irrs, pw, pwExit;
-
-  if (p.multiExit) {
-    pwExit = p.exitBull * p.wtBull + p.exitBase * p.wtBase + p.exitBear * p.wtBear;
-    scenarios = [
-      { label: 'Bull', shortLabel: 'Bull (' + fmtM(p.exitBull) + ')', price: p.exitBull, wt: p.wtBull },
-      { label: 'Base', shortLabel: 'Base (' + fmtM(p.exitBase) + ')', price: p.exitBase, wt: p.wtBase },
-      { label: 'Bear', shortLabel: 'Bear (' + fmtM(p.exitBear) + ')', price: p.exitBear, wt: p.wtBear },
-      { label: 'Prob-Wtd', shortLabel: 'Prob-Weighted', price: pwExit, wt: 1 },
-    ];
-    bResults = scenarios.map(s => ({ ...s, b: calcB(s.price, p) }));
-    irrs = bResults.map(s => ({ ...s, irr: calcIRR(a.atProceeds, s.b, p) }));
-    pw = bResults[3];
-  } else {
-    pwExit = p.exitSingle;
-    scenarios = [
-      { label: 'Exit', shortLabel: fmtM(p.exitSingle) + ' Exit', price: p.exitSingle, wt: 1 },
-    ];
-    bResults = scenarios.map(s => ({ ...s, b: calcB(s.price, p) }));
-    irrs = bResults.map(s => ({ ...s, irr: calcIRR(a.atProceeds, s.b, p) }));
-    pw = bResults[0];
-  }
+  const analysis = Engine.evaluateExitScenarios(p, a);
+  const bResults = analysis.displayResults.map(result => ({
+    ...result,
+    shortLabel: formatScenarioShortLabel(result),
+  }));
+  const expected = analysis.summary;
+  const expectedExitPrice = expected.price;
+  setExitWeightNotice(p.multiExit ? analysis.weightNotice : '');
 
   // --- Dynamic "Year N" labels ---
   const yrLabel = 'Year ' + p.holdYears;
@@ -599,59 +534,55 @@ function recalculate() {
   document.getElementById('chartFVtitle').innerHTML = 'After-Tax Future Value (' + yrLabel + ') <span class="tip">?<span class="tiptext">Total after-tax wealth at the end of the hold period for each scenario. Compares Sell Now proceeds (compounded) vs. Hold exit + accumulated cash flows.</span></span>';
 
   // --- KPIs ---
-  const fvDiff = pw.b.totalFV - a.fvAT;
+  const fvDiff = expected.b.totalFV - a.fvAT;
   const fvWinner = fvDiff > 0 ? 'B' : 'A';
   document.getElementById('kpiFVval').textContent = (fvWinner === 'B' ? 'B +' : 'A +') + fmtM(Math.abs(fvDiff));
   document.getElementById('kpiFVval').style.color = fvWinner === 'B' ? 'var(--green)' : 'var(--blue)';
-  document.getElementById('kpiFVdet').textContent = fmtM(pw.b.totalFV) + ' vs ' + fmtM(a.fvAT);
+  document.getElementById('kpiFVdet').textContent = fmtM(expected.b.totalFV) + ' vs ' + fmtM(a.fvAT);
 
-  const npvDiff = pw.b.totalNPV - a.npv;
+  const npvDiff = expected.b.totalNPV - a.npv;
   const npvWinner = npvDiff > 0 ? 'B' : 'A';
   document.getElementById('kpiNPVval').textContent = (npvWinner === 'B' ? 'B +' : 'A +') + fmtM(Math.abs(npvDiff));
   document.getElementById('kpiNPVval').style.color = npvWinner === 'B' ? 'var(--green)' : 'var(--blue)';
-  document.getElementById('kpiNPVdet').textContent = fmtM(npvWinner === 'A' ? a.npv : pw.b.totalNPV) + ' vs ' + fmtM(npvWinner === 'A' ? pw.b.totalNPV : a.npv);
+  document.getElementById('kpiNPVdet').textContent = fmtM(npvWinner === 'A' ? a.npv : expected.b.totalNPV) + ' vs ' + fmtM(npvWinner === 'A' ? expected.b.totalNPV : a.npv);
 
-  const pwIRR = irrs[irrs.length - 1].irr;
-  document.getElementById('kpiIRRval').textContent = fmtP(pwIRR);
-  document.getElementById('kpiIRRval').style.color = pwIRR > p.reinvRate ? 'var(--green)' : 'var(--blue)';
-  document.getElementById('kpiIRRdet').textContent = (pwIRR > p.reinvRate ? 'Above' : 'Below') + ' ' + fmtP1(p.reinvRate) + ' reinv. → favors ' + (pwIRR > p.reinvRate ? 'holding' : 'selling');
+  const expectedIRR = expected.irr;
+  if (expectedIRR === null) {
+    document.getElementById('kpiIRRval').textContent = 'N/A';
+    document.getElementById('kpiIRRval').style.color = 'var(--gray-700)';
+    document.getElementById('kpiIRRdet').textContent = 'Current cash flows do not produce a valid IRR.';
+  } else {
+    document.getElementById('kpiIRRval').textContent = fmtP(expectedIRR);
+    document.getElementById('kpiIRRval').style.color = expectedIRR > p.reinvRate ? 'var(--green)' : 'var(--blue)';
+    document.getElementById('kpiIRRdet').textContent = (expectedIRR > p.reinvRate ? 'Above' : 'Below') + ' ' + fmtP1(p.reinvRate) + ' reinv. → favors ' + (expectedIRR > p.reinvRate ? 'holding' : 'selling');
+  }
 
-  document.getElementById('kpiIRRlbl').innerHTML = (p.multiExit ? 'Hold IRR (Prob-Wtd)' : 'Hold IRR') + ' <span class="tip">?<span class="tiptext">The annualized return you effectively earn by choosing to hold instead of sell. Compare to the reinvestment rate — above means hold wins.</span></span>';
-  document.getElementById('kpiPWlbl').innerHTML = (p.multiExit ? 'Prob-Weighted Exit' : 'Exit Price') + ' <span class="tip">?<span class="tiptext">The expected sale price at the end of the hold period. If probability-weighted mode is on, this is the weighted average of all scenarios.</span></span>';
-  document.getElementById('kpiPWval').textContent = fmtM(pwExit);
+  document.getElementById('kpiIRRlbl').innerHTML = (p.multiExit ? 'Expected Hold IRR' : 'Hold IRR') + ' <span class="tip">?<span class="tiptext">' + (p.multiExit ? 'Weighted average of the scenario IRRs. Compare to the reinvestment rate to judge whether holding is expected to outperform selling.' : 'The annualized return you effectively earn by choosing to hold instead of sell. Compare to the reinvestment rate — above means hold wins.') + '</span></span>';
+  document.getElementById('kpiPWlbl').innerHTML = (p.multiExit ? 'Expected Exit' : 'Exit Price') + ' <span class="tip">?<span class="tiptext">' + (p.multiExit ? 'The expected end-of-hold sale price after normalizing the bull/base/bear weights to 100% when needed.' : 'The expected sale price at the end of the hold period.') + '</span></span>';
+  document.getElementById('kpiPWval').textContent = fmtM(expectedExitPrice);
   document.getElementById('kpiPWval').style.color = 'var(--gray-700)';
   document.getElementById('kpiPWdet').textContent = p.multiExit
-    ? 'Bull ' + fmtM(p.exitBull) + ' · Base ' + fmtM(p.exitBase) + ' · Bear ' + fmtM(p.exitBear)
+    ? 'Bull ' + fmtM(p.exitBull) + ' · Base ' + fmtM(p.exitBase) + ' · Bear ' + fmtM(p.exitBear) + (analysis.weightNotice ? ' · ' + analysis.weightNotice : '')
     : 'Single exit price';
 
   // --- Breakeven Sale Price ---
-  // Find the gross sale price today (Scenario A) that produces the same after-tax FV as Scenario B.
-  // Use binary search since the tax calc is non-linear.
-  const targetFV = pw.b.totalFV;
-  let lo = 0, hi = targetFV * 3;
-  for (let i = 0; i < 100; i++) {
-    const mid = (lo + hi) / 2;
-    // Simulate Scenario A with gross sale = mid
-    const txC = mid * p.txNow;
-    const ns = mid - txC;
-    const sg = Math.max(ns - p.costBasis, 0);
-    const st = calcCGTax(sg, p.cumDep, p);
-    const ap = ns - st;
-    const fvG = ap * Math.pow(1 + p.reinvRate, p.holdYears);
-    const ig = fvG - ap;
-    const it = calcCGTax(Math.max(ig, 0), 0, p);
-    const fvAT = fvG - it;
-    if (fvAT < targetFV) lo = mid; else hi = mid;
-  }
-  const breakevenGross = (lo + hi) / 2;
-  const gap = p.grossSale - breakevenGross;
-  const aboveBelow = gap >= 0 ? 'above' : 'below';
-  const favorsSellHold = gap >= 0 ? 'favors selling' : 'favors holding';
-
   document.getElementById('kpiBElbl').innerHTML = 'Breakeven Sale Price <span class="tip">?<span class="tiptext">The minimum gross sale price you\'d need today (Scenario A) to match Scenario B\'s after-tax future value. If your current offer is below this, holding is favored.</span></span>';
-  document.getElementById('kpiBEval').textContent = fmtM(breakevenGross);
-  document.getElementById('kpiBEval').style.color = gap >= 0 ? 'var(--blue)' : 'var(--green)';
-  document.getElementById('kpiBEdet').textContent = 'Offer ' + fmtM(Math.abs(gap)) + ' ' + aboveBelow + ' → ' + favorsSellHold;
+  const breakeven = Engine.calcBreakevenSalePrice(expected.b.totalFV, p);
+  if (breakeven.value === null) {
+    document.getElementById('kpiBEval').textContent = 'N/A';
+    document.getElementById('kpiBEval').style.color = 'var(--gray-700)';
+    document.getElementById('kpiBEdet').textContent = 'No non-negative breakeven sale price exists for the current assumptions.';
+  } else {
+    const breakevenGross = breakeven.value;
+    const gap = p.grossSale - breakevenGross;
+    const aboveBelow = gap >= 0 ? 'above' : 'below';
+    const favorsSellHold = gap >= 0 ? 'favors selling' : 'favors holding';
+    document.getElementById('kpiBEval').textContent = fmtM(breakevenGross);
+    document.getElementById('kpiBEval').style.color = gap >= 0 ? 'var(--blue)' : 'var(--green)';
+    document.getElementById('kpiBEdet').textContent = breakeven.status === 'zero_sale_beats_target'
+      ? 'Hold case falls below a $0 sale outcome → any non-negative offer favors selling.'
+      : 'Offer ' + fmtM(Math.abs(gap)) + ' ' + aboveBelow + ' → ' + favorsSellHold;
+  }
 
   // --- Charts ---
   const labels4 = bResults.map(s => s.shortLabel);
@@ -666,14 +597,14 @@ function recalculate() {
   chartNPV.update();
 
   chartIRR.data.labels = labels4;
-  chartIRR.data.datasets[0].data = irrs.map(s => +(s.irr * 100).toFixed(2));
-  chartIRR.data.datasets[0].backgroundColor = irrs.map(s => s.irr > p.reinvRate ? greenA : redA);
+  chartIRR.data.datasets[0].data = bResults.map(s => s.irr === null ? null : +(s.irr * 100).toFixed(2));
+  chartIRR.data.datasets[0].backgroundColor = bResults.map(s => s.irr === null ? grayA : (s.irr > p.reinvRate ? greenA : redA));
   chartIRR.update();
 
-  const cfLabels = pw.b.annual.map(d => d.yr);
+  const cfLabels = expected.b.annual.map(d => d.yr);
   chartCF.data.labels = cfLabels;
-  chartCF.data.datasets[0].data = pw.b.annual.map(d => +(d.netAT / 1e6).toFixed(3));
-  chartCF.data.datasets[1].data = pw.b.annual.map(d => +(d.compCF / 1e6).toFixed(1));
+  chartCF.data.datasets[0].data = expected.b.annual.map(d => +(d.netAT / 1e6).toFixed(3));
+  chartCF.data.datasets[1].data = expected.b.annual.map(d => +(d.compCF / 1e6).toFixed(1));
   chartCF.update();
 
   // --- Table: Scenario A ---
@@ -684,7 +615,7 @@ function recalculate() {
     tr('Capital Gains Tax on Sale', negM(a.saleTax), 'var(--red)'),
     trBold('After-Tax Proceeds Invested', fmtD(a.atProceeds)),
     tr('Compounded @ ' + fmtP1(p.reinvRate) + ' for ' + p.holdYears + ' yrs', fmtD(a.fvGross)),
-    tr('Tax on Investment Gain', negM(a.invTax), 'var(--red)'),
+    tr('Tax on Reinvestment Gain', negM(a.invTax), 'var(--red)'),
     trTotal('After-Tax Future Value', fmtD(a.fvAT)),
   ].join('');
 
@@ -716,29 +647,34 @@ function recalculate() {
   // --- Table: NPV ---
   const npvHead = '<tr><th></th><th class="num">PV of CFs</th><th class="num">PV of Exit</th><th class="num">Total NPV</th><th class="num">vs Scenario A</th></tr>';
   const npvRowA = '<tr style="background:var(--blue-light)"><td style="font-weight:600">Scenario A</td><td class="num">—</td><td class="num">—</td><td class="num" style="font-weight:700">' + fmtM(a.npv) + '</td><td class="num">—</td></tr>';
-  const npvRowsB = bResults.map((s, i) => {
+  const npvRowsB = bResults.map(s => {
     const d = s.b.totalNPV - a.npv;
     const w = d > 0 ? 'B' : 'A';
-    const cls = i === 3 ? ' class="row-hl"' : '';
-    return '<tr' + cls + '><td' + (i === 3 ? ' style="font-weight:600"' : '') + '>B — ' + s.shortLabel + '</td><td class="num">' + fmtM(s.b.npvCF) + '</td><td class="num">' + fmtM(s.b.pvExit) + '</td><td class="num" style="font-weight:600">' + fmtM(s.b.totalNPV) + '</td><td class="num cell-' + w.toLowerCase() + '">' + w + ' +' + fmtM(Math.abs(d)) + '</td></tr>';
+    const cls = s.kind === 'expected' ? ' class="row-hl"' : '';
+    const style = s.kind === 'expected' ? ' style="font-weight:600"' : '';
+    return '<tr' + cls + '><td' + style + '>B — ' + s.shortLabel + '</td><td class="num">' + fmtM(s.b.npvCF) + '</td><td class="num">' + fmtM(s.b.pvExit) + '</td><td class="num" style="font-weight:600">' + fmtM(s.b.totalNPV) + '</td><td class="num cell-' + w.toLowerCase() + '">' + w + ' +' + fmtM(Math.abs(d)) + '</td></tr>';
   }).join('');
   document.getElementById('tblNPV').innerHTML = npvHead + npvRowA + npvRowsB;
 
   // --- Table: IRR ---
   document.getElementById('irrSubtitle').textContent = 'Opportunity cost (Year 0): ' + fmtD(a.atProceeds) + ' — after-tax proceeds foregone by not selling today.';
   const irrHead = '<tr><th>Exit Scenario</th><th class="num">IRR</th><th class="num">vs ' + fmtP1(p.reinvRate) + ' Reinvestment</th><th>Decision</th></tr>';
-  const irrRows = irrs.map((s, i) => {
+  const irrRows = bResults.map(s => {
+    const cls = s.kind === 'expected' ? ' class="row-hl"' : '';
+    const style = s.kind === 'expected' ? ' style="font-weight:600"' : '';
+    if (s.irr === null) {
+      return '<tr' + cls + '><td' + style + '>' + s.shortLabel + '</td><td class="num" style="font-weight:700">N/A</td><td class="num">N/A</td><td><span class="verdict na">INCONCLUSIVE</span></td></tr>';
+    }
     const spread = s.irr - p.reinvRate;
     const hold = spread > 0;
-    const cls = i === 3 ? ' class="row-hl"' : '';
-    return '<tr' + cls + '><td' + (i === 3 ? ' style="font-weight:600"' : '') + '>' + s.shortLabel + '</td><td class="num" style="font-weight:700">' + fmtP(s.irr) + '</td><td class="num cell-' + (hold ? 'b' : 'a') + '">' + (spread >= 0 ? '+' : '') + fmtP(spread) + '</td><td><span class="verdict ' + (hold ? 'b' : 'a') + '">' + (hold ? 'HOLD' : 'SELL') + '</span></td></tr>';
+    return '<tr' + cls + '><td' + style + '>' + s.shortLabel + '</td><td class="num" style="font-weight:700">' + formatIRRValue(s.irr) + '</td><td class="num cell-' + (hold ? 'b' : 'a') + '">' + formatIRRSpread(s.irr, p.reinvRate) + '</td><td><span class="verdict ' + (hold ? 'b' : 'a') + '">' + (hold ? 'HOLD' : 'SELL') + '</span></td></tr>';
   }).join('');
   document.getElementById('tblIRR').innerHTML = irrHead + irrRows;
 
   // --- Table: Annual CF ---
   const cfHead = '<tr><th class="num">Year</th><th class="num">Carrying</th><th class="num">Lease</th><th class="num">Net Pre-Tax</th><th class="num">Income Tax</th><th class="num">Net After-Tax</th><th class="num">Compounded</th></tr>';
-  const cfRows = pw.b.annual.map((d, i) => {
-    const cls = i === pw.b.annual.length - 1 ? ' class="row-total"' : '';
+  const cfRows = expected.b.annual.map((d, i) => {
+    const cls = i === expected.b.annual.length - 1 ? ' class="row-total"' : '';
     return '<tr' + cls + '><td class="num">' + d.yr + '</td><td class="num">' + fmtM(d.carry) + '</td><td class="num">' + fmtM(d.lease) + '</td><td class="num">' + fmtM(d.netPre) + '</td><td class="num" style="color:var(--red)">' + negM(d.incTax) + '</td><td class="num">' + fmtM(d.netAT) + '</td><td class="num">' + fmtM(d.compCF) + '</td></tr>';
   }).join('');
   document.getElementById('tblCF').innerHTML = cfHead + cfRows;
@@ -756,7 +692,7 @@ function recalculate() {
   ].join('');
 
   // --- Sensitivity Tables ---
-  buildSens1(p, a); buildSens2(p, a, pwExit); buildSens3(p, a); buildSens4(p);
+  buildSens1(p, a); buildSens2(p, a, analysis.scenarioDefs); buildSens3(p, a); buildSens4(p);
 }
 
 function buildSens1(p) {
@@ -775,15 +711,20 @@ function buildSens1(p) {
   });
   document.getElementById('sensT1').innerHTML = h;
 }
-function buildSens2(p, a, pwExit) {
+function buildSens2(p, a, exitScenarios) {
   const carries = [500e3, 1e6, 1.5e6, 2e6, 2.5e6];
   const futureNOIs = [0, 1e6, 2e6, 3e6, 4e6, 5e6];
+  const scenarios = exitScenarios && exitScenarios.length ? exitScenarios : [{ price: p.exitSingle, wt: 1 }];
   let h = '<tr><th>Carry</th>' + futureNOIs.map(l => '<th>' + fmtM(l) + '</th>').join('') + '</tr>';
   carries.forEach(cv => {
     h += '<tr><td>' + fmtM(cv) + '</td>';
     futureNOIs.forEach(noi2v => {
-      const bR = calcB(pwExit, p, undefined, undefined, undefined, cv, undefined, undefined, undefined, noi2v);
-      const d = bR.totalNPV - a.npv; const w = d > 0 ? 'B' : 'A';
+      let expectedNPV = 0;
+      scenarios.forEach(scenario => {
+        const bR = calcB(scenario.price, p, undefined, undefined, undefined, cv, undefined, undefined, undefined, noi2v);
+        expectedNPV += bR.totalNPV * scenario.wt;
+      });
+      const d = expectedNPV - a.npv; const w = d > 0 ? 'B' : 'A';
       h += '<td class="cell-' + w.toLowerCase() + '">' + w + ' +' + fmtM(Math.abs(d)) + '</td>';
     });
     h += '</tr>';
