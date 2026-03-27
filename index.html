@@ -152,6 +152,40 @@
 
   footer { text-align: center; padding: 1.5rem 0 1rem; font-size: 0.75rem; color: var(--gray-500); }
 
+  /* Header action buttons */
+  .header-actions { display: flex; gap: 0.5rem; align-items: center; flex-shrink: 0; }
+  .btn-secondary {
+    background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.4);
+    border-radius: 8px; padding: 0.45rem 0.9rem; font-size: 0.78rem; font-weight: 600;
+    cursor: pointer; white-space: nowrap; transition: background 0.15s;
+  }
+  .btn-secondary:hover { background: rgba(255,255,255,0.35); }
+  .share-status { font-size: 0.75rem; color: rgba(255,255,255,0.9); font-weight: 600; min-width: 0; }
+  .print-only { display: none; }
+
+  /* Print styles */
+  @media print {
+    .sidebar, .btn-secondary, .share-status, .btn-recalc, .live-badge,
+    .tip, footer, p[style*="Also updates"] { display: none !important; }
+    .app { display: block; }
+    .main { padding: 0; overflow: visible; min-width: 0; }
+    .container { max-width: 100%; overflow: visible; }
+    header { -webkit-print-color-adjust: exact; print-color-adjust: exact; break-after: avoid; }
+    .header-actions { display: none !important; }
+    .print-only { display: block !important; font-size: 0.75rem; opacity: 0.8; margin-top: 0.35rem; }
+    .kpi-grid { grid-template-columns: repeat(5, 1fr); }
+    .kpi { -webkit-print-color-adjust: exact; print-color-adjust: exact; border: 1px solid #ccc; break-inside: avoid; }
+    .chart-grid { grid-template-columns: 1fr; }
+    .chart-box { break-inside: avoid; border: 1px solid #ccc; }
+    .card { break-inside: avoid; box-shadow: none; border: 1px solid #ccc; page-break-inside: avoid; }
+    .sens-grid > div { break-inside: avoid; }
+    .cell-a, .cell-b, .verdict { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    body { background: white; font-size: 10pt; }
+    table { font-size: 9pt; }
+    .sens-table td, .sens-table th { font-size: 8pt; padding: 2px 4px; }
+    canvas { max-height: 260px; }
+  }
+
   /* Tablet */
   @media (max-width: 1100px) {
     .app { flex-direction: column; }
@@ -276,8 +310,18 @@
 <div class="container">
 
 <header>
-  <h1>Commercial Site Investment Analysis</h1>
-  <div class="subtitle">Scenario A (Sell Now) vs. Scenario B (Hold & Sell Later)</div>
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem">
+    <div>
+      <h1>Commercial Site Investment Analysis</h1>
+      <div class="subtitle">Scenario A (Sell Now) vs. Scenario B (Hold & Sell Later)</div>
+      <div class="print-only" id="printMeta">Generated <span id="printTimestamp"></span> · <span id="printUrl" style="font-size:0.65rem;word-break:break-all"></span></div>
+    </div>
+    <div class="header-actions">
+      <button id="btnShare" class="btn-secondary" onclick="copyShareURL()">Share Link</button>
+      <span id="shareStatus" class="share-status"></span>
+      <button id="btnPrint" class="btn-secondary" onclick="printReport()">Print / PDF</button>
+    </div>
+  </div>
 </header>
 
 <!-- KPI -->
@@ -356,7 +400,49 @@
 // ============================================================
 const { calcCGTax, calcDisposition, calcAFromGrossSale, calcA, calcB, calcIRR, normalizeExitScenarioWeights, evaluateExitScenarios, calcBreakevenSalePrice, leaseForYear, adjustedBasis, npvAtRate } = RealEstateEngine;
 
-// --- Dollar-field formatting helpers ---
+// ============================================================
+// SHARE SCHEMA — maps short URL keys to input IDs, types, defaults
+// Defaults reflect EFFECTIVE post-init state (1031 ON → tax fields = 0)
+// ============================================================
+const SHARE_SCHEMA = {
+  gs:  { id: 'in_gross_sale',   type: 'dollar',   default: 100000000 },
+  cb:  { id: 'in_cost_basis',   type: 'dollar',   default: 8425000 },
+  hy:  { id: 'in_hold',         type: 'number',   default: 10 },
+  rr:  { id: 'in_reinv',        type: 'number',   default: 6 },
+  dr:  { id: 'in_disc',         type: 'number',   default: 7 },
+  xs:  { id: 'in_exit_single',  type: 'dollar',   default: 200000000 },
+  mx:  { id: 'in_multi_exit',   type: 'checkbox', default: false },
+  xb:  { id: 'in_exit_bull',    type: 'dollar',   default: 250000000 },
+  wb:  { id: 'in_wt_bull',      type: 'number',   default: 25 },
+  xm:  { id: 'in_exit_base',    type: 'dollar',   default: 200000000 },
+  wm:  { id: 'in_wt_base',      type: 'number',   default: 50 },
+  xr:  { id: 'in_exit_bear',    type: 'dollar',   default: 140000000 },
+  wr:  { id: 'in_wt_bear',      type: 'number',   default: 25 },
+  cc:  { id: 'in_carry',        type: 'dollar',   default: 0 },
+  ce:  { id: 'in_carry_esc',    type: 'number',   default: 3 },
+  n1:  { id: 'in_noi_p1',       type: 'dollar',   default: 600000 },
+  n2:  { id: 'in_noi_p2',       type: 'dollar',   default: 2000000 },
+  p1:  { id: 'in_p1_end',       type: 'number',   default: 3.5 },
+  tn:  { id: 'in_tx_now',       type: 'number',   default: 14 },
+  tf:  { id: 'in_tx_future',    type: 'number',   default: 4 },
+  x1:  { id: 'in_1031',         type: 'checkbox', default: true },
+  cg:  { id: 'in_fed_cg',       type: 'number',   default: 0 },
+  ni:  { id: 'in_niit',         type: 'number',   default: 0 },
+  dp:  { id: 'in_dep_recap',    type: 'number',   default: 0 },
+  cd:  { id: 'in_cum_dep',      type: 'dollar',   default: 0 },
+  wa:  { id: 'in_wa_enabled',   type: 'checkbox', default: false },
+  oi:  { id: 'in_ord_rate',     type: 'number',   default: 37 },
+};
+// Off-defaults for 1031: when toggle is OFF, these are the standard rates
+const OFF_DEFAULTS_1031 = { cg: 20, ni: 3.8, dp: 25 };
+// Mode-dependent keys to omit
+const SINGLE_EXIT_OMIT = ['xb', 'wb', 'xm', 'wm', 'xr', 'wr'];
+const MULTI_EXIT_OMIT = ['xs'];
+const TAX_FIELDS_1031 = ['cg', 'ni', 'dp'];
+
+// ============================================================
+// LOW-LEVEL DOM HELPERS
+// ============================================================
 function addCommas(numStr) {
   const parts = numStr.split('.');
   parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
@@ -366,24 +452,173 @@ function parseDollar(id) {
   const el = document.getElementById(id);
   return parseFloat(el.dataset.raw) || 0;
 }
+
+function getRawInputValue(id, type) {
+  const el = document.getElementById(id);
+  if (!el) return undefined;
+  if (type === 'checkbox') return el.checked;
+  if (type === 'dollar') return parseFloat(el.dataset.raw) || 0;
+  return parseFloat(el.value) || 0;
+}
+
+function setRawInputValue(id, type, val) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (type === 'checkbox') {
+    el.checked = !!val;
+  } else if (type === 'dollar') {
+    const num = parseFloat(val) || 0;
+    el.dataset.raw = num;
+    el.value = addCommas(Math.round(num).toString());
+  } else {
+    el.value = val;
+  }
+}
+
+// ============================================================
+// SHARE STATE HELPERS — read/write/normalize/encode/decode
+// ============================================================
+function readShareStateFromDOM() {
+  const state = {};
+  for (const [key, cfg] of Object.entries(SHARE_SCHEMA)) {
+    state[key] = getRawInputValue(cfg.id, cfg.type);
+  }
+  return state;
+}
+
+function writeShareStateToDOM(state) {
+  for (const [key, cfg] of Object.entries(SHARE_SCHEMA)) {
+    if (key in state) {
+      setRawInputValue(cfg.id, cfg.type, state[key]);
+    }
+  }
+}
+
+function normalizeShareState(state) {
+  // Returns a new object with mode-aware omission applied
+  const out = {};
+  const isMulti = state.mx;
+  const is1031 = state.x1;
+  const omitKeys = new Set();
+
+  // Mode-dependent omission
+  if (!isMulti) SINGLE_EXIT_OMIT.forEach(k => omitKeys.add(k));
+  if (isMulti) MULTI_EXIT_OMIT.forEach(k => omitKeys.add(k));
+  if (is1031) TAX_FIELDS_1031.forEach(k => omitKeys.add(k));
+
+  for (const [key, cfg] of Object.entries(SHARE_SCHEMA)) {
+    if (omitKeys.has(key)) continue;
+
+    const val = state[key];
+    // For 1031-off tax fields, compare against off-defaults
+    let defaultVal = cfg.default;
+    if (!is1031 && TAX_FIELDS_1031.includes(key)) {
+      defaultVal = OFF_DEFAULTS_1031[key];
+    }
+
+    // Only include non-default values
+    if (cfg.type === 'checkbox') {
+      if (val !== defaultVal) out[key] = val;
+    } else {
+      if (Math.abs(val - defaultVal) > 1e-9) out[key] = val;
+    }
+  }
+  return out;
+}
+
+function buildShareURLFromState(state) {
+  const normalized = normalizeShareState(state);
+  const params = new URLSearchParams();
+  params.set('v', '1');
+  for (const [key, val] of Object.entries(normalized)) {
+    const cfg = SHARE_SCHEMA[key];
+    if (cfg.type === 'checkbox') {
+      params.set(key, val ? '1' : '0');
+    } else {
+      params.set(key, val);
+    }
+  }
+  return window.location.origin + window.location.pathname + '?' + params.toString();
+}
+
+function readShareStateFromURL(search) {
+  const params = new URLSearchParams(search);
+  if (!params.has('v') && params.size === 0) return null; // no share params
+
+  const state = {};
+  // Start with all defaults
+  for (const [key, cfg] of Object.entries(SHARE_SCHEMA)) {
+    state[key] = cfg.default;
+  }
+
+  // Check if 1031 is explicitly set in URL
+  const has1031 = params.has('x1');
+  const is1031Off = has1031 && (params.get('x1') === '0' || params.get('x1') === 'false');
+
+  // If 1031 is off, use off-defaults for tax fields
+  if (is1031Off) {
+    state.x1 = false;
+    state.cg = OFF_DEFAULTS_1031.cg;
+    state.ni = OFF_DEFAULTS_1031.ni;
+    state.dp = OFF_DEFAULTS_1031.dp;
+  }
+
+  // Override with URL values (ignoring unknown params)
+  for (const [key, cfg] of Object.entries(SHARE_SCHEMA)) {
+    if (!params.has(key)) continue;
+    const raw = params.get(key);
+    if (cfg.type === 'checkbox') {
+      state[key] = (raw === '1' || raw === 'true');
+    } else {
+      const num = parseFloat(raw);
+      if (!isNaN(num)) state[key] = num;
+    }
+  }
+
+  return state;
+}
+
+function copyShareURL() {
+  const url = buildShareURLFromState(readShareStateFromDOM());
+  const statusEl = document.getElementById('shareStatus');
+
+  if (url.length > 2000) {
+    console.warn('Share URL is very long (' + url.length + ' chars)');
+  }
+
+  navigator.clipboard.writeText(url).then(() => {
+    statusEl.textContent = 'Copied!';
+    setTimeout(() => { statusEl.textContent = ''; }, 2000);
+  }).catch(() => {
+    prompt('Copy this link:', url);
+  });
+}
+
+function printReport() {
+  document.getElementById('printTimestamp').textContent =
+    new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  document.getElementById('printUrl').textContent =
+    buildShareURLFromState(readShareStateFromDOM());
+  window.print();
+}
+
+// ============================================================
+// DOLLAR FIELD INITIALIZATION
+// ============================================================
 function initDollarFields() {
   document.querySelectorAll('input[data-dollar]').forEach(el => {
-    // On focus: show raw number for easy editing
     el.addEventListener('focus', () => {
       el.value = el.dataset.raw;
       el.select();
     });
-    // On blur: parse, store raw, display formatted
     el.addEventListener('blur', () => {
       const raw = parseFloat(el.value.replace(/,/g, '')) || 0;
       el.dataset.raw = raw;
       el.value = addCommas(Math.round(raw).toString());
     });
-    // On input: update raw value and trigger recalc
     el.addEventListener('input', () => {
       const raw = parseFloat(el.value.replace(/,/g, '')) || 0;
       el.dataset.raw = raw;
-      recalculate();
     });
   });
 }
@@ -753,45 +988,72 @@ function trBold(label, val) { return '<tr><td>' + label + '</td><td class="num" 
 function trTotal(label, val) { return '<tr class="row-total"><td>' + label + '</td><td class="num">' + val + '</td></tr>'; }
 
 // ============================================================
-// 1031 EXCHANGE TOGGLE
+// 1031 EXCHANGE TOGGLE — split into 3 functions
 // ============================================================
-const DEFAULT_FED_CG = 20;
-const DEFAULT_NIIT = 3.8;
-const DEFAULT_DEP_RECAP = 25;
 
-function toggle1031() {
-  const on = document.getElementById('in_1031').checked;
+// UI-only: dims/enables tax fields. NEVER sets values. Safe during hydration.
+function apply1031FieldLock(on) {
   const fedEl = document.getElementById('in_fed_cg');
   const niitEl = document.getElementById('in_niit');
   const depEl = document.getElementById('in_dep_recap');
-
-  if (on) {
-    fedEl.value = 0;
-    niitEl.value = 0;
-    depEl.value = 0;
-  } else {
-    fedEl.value = DEFAULT_FED_CG;
-    niitEl.value = DEFAULT_NIIT;
-    depEl.value = DEFAULT_DEP_RECAP;
-  }
-
-  // Dim the fields when 1031 is on
   [fedEl, niitEl, depEl].forEach(el => {
+    if (!el) return;
     el.style.opacity = on ? '0.4' : '1';
     el.readOnly = on;
   });
+}
 
+// Sets tax field values: 0 when ON, standard rates when OFF.
+function apply1031DefaultValues(on) {
+  const fedEl = document.getElementById('in_fed_cg');
+  const niitEl = document.getElementById('in_niit');
+  const depEl = document.getElementById('in_dep_recap');
+  if (on) {
+    fedEl.value = 0; niitEl.value = 0; depEl.value = 0;
+  } else {
+    fedEl.value = OFF_DEFAULTS_1031.cg;
+    niitEl.value = OFF_DEFAULTS_1031.ni;
+    depEl.value = OFF_DEFAULTS_1031.dp;
+  }
+}
+
+// User-triggered: sets values + locks fields + recalculates
+function handle1031ToggleChange() {
+  const on = document.getElementById('in_1031').checked;
+  apply1031DefaultValues(on);
+  apply1031FieldLock(on);
   recalculate();
 }
 
 // ============================================================
 // EXIT MODE TOGGLE
 // ============================================================
-function toggleExitMode() {
+// UI-only: shows/hides multi-exit fields. Safe during hydration.
+function applyExitModeUIOnly() {
   const multi = document.getElementById('in_multi_exit').checked;
   document.getElementById('exit_multi').style.display = multi ? 'block' : 'none';
   document.getElementById('exit_single_wrap').style.display = multi ? 'none' : 'block';
 }
+
+// User-triggered: updates UI + recalculates
+function toggleExitMode() {
+  applyExitModeUIOnly();
+  recalculate();
+}
+
+// ============================================================
+// BEFOREPRINT / AFTERPRINT — freeze chart animations
+// ============================================================
+window.addEventListener('beforeprint', () => {
+  [chartFV, chartNPV, chartIRR, chartCF].forEach(c => {
+    if (c) { c.options.animation = false; c.update('none'); }
+  });
+});
+window.addEventListener('afterprint', () => {
+  [chartFV, chartNPV, chartIRR, chartCF].forEach(c => {
+    if (c) c.options.animation = { duration: 400 };
+  });
+});
 
 // ============================================================
 // INIT & LIVE BINDING
@@ -799,24 +1061,36 @@ function toggleExitMode() {
 initCharts();
 initDollarFields();
 
-// Apply initial toggle states
-toggle1031();
-toggleExitMode();
+// Phase 1: Hydrate from URL if share params present
+const urlState = readShareStateFromURL(window.location.search);
+if (urlState) {
+  writeShareStateToDOM(urlState);
+}
 
-// Single unified listener on the entire sidebar — catches all inputs, checkboxes, toggles
+// Phase 2: Apply UI-only state (field locks, visibility) — never sets values
+apply1031FieldLock(document.getElementById('in_1031').checked);
+applyExitModeUIOnly();
+
+// Phase 3: If NO URL params, apply default values for 1031 mode
+if (!urlState) {
+  apply1031DefaultValues(document.getElementById('in_1031').checked);
+}
+
+// Phase 4: Bind events with specific routing
 document.querySelector('.sidebar').addEventListener('input', function(e) {
   const id = e.target.id;
-  if (id === 'in_1031') { toggle1031(); }
-  else if (id === 'in_multi_exit') { toggleExitMode(); }
+  if (id === 'in_1031') { handle1031ToggleChange(); return; }
+  if (id === 'in_multi_exit') { toggleExitMode(); return; }
   recalculate();
 });
 document.querySelector('.sidebar').addEventListener('change', function(e) {
   const id = e.target.id;
-  if (id === 'in_1031') { toggle1031(); }
-  else if (id === 'in_multi_exit') { toggleExitMode(); }
+  if (id === 'in_1031') { handle1031ToggleChange(); return; }
+  if (id === 'in_multi_exit') { toggleExitMode(); return; }
   recalculate();
 });
 
+// Phase 5: Single recalculate
 recalculate();
 
 // --- Tooltip positioning (fixed, clamped to viewport) ---
