@@ -496,6 +496,15 @@ class TestURLSyncRegression:
         assert 'Object.keys(normalized).length === 0' in self.html
         assert 'buildShareURLFromState' in self.html
 
+    def test_phase0_resets_checkboxes_before_hydration(self):
+        """Init resets all checkboxes to schema defaults before URL hydration.
+        Prevents browser form state restoration from flipping toggles OFF on refresh."""
+        init_start = self.html.index('// Phase 0:')
+        phase1_start = self.html.index('// Phase 1:', init_start)
+        phase0 = self.html[init_start:phase1_start]
+        assert "cfg.type === 'checkbox'" in phase0 or 'cfg.type === "checkbox"' in phase0
+        assert '.checked = cfg.default' in phase0
+
     def test_no_bare_v1_on_default_state(self):
         """The debounced sync never produces a bare ?v=1 URL when all at defaults.
         This prevents the refresh-clobbers-toggles bug."""

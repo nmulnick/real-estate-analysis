@@ -1123,6 +1123,15 @@ window.addEventListener('afterprint', () => {
 initCharts();
 initDollarFields();
 
+// Phase 0: Reset all checkboxes to schema defaults.
+// Browsers restore form state on refresh, which can override the HTML checked
+// attribute and flip toggles OFF. This explicit reset prevents that.
+for (const [key, cfg] of Object.entries(SHARE_SCHEMA)) {
+  if (cfg.type === 'checkbox') {
+    document.getElementById(cfg.id).checked = cfg.default;
+  }
+}
+
 // Phase 1: Hydrate from URL if share params present
 const urlState = readShareStateFromURL(window.location.search);
 if (urlState) {
