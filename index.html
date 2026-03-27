@@ -621,7 +621,8 @@ function resetToDefaults() {
 
   recalculate();
 
-  // Clear URL to clean path — all values are at defaults so no params needed.
+  // Clear URL and cancel the debounced sync (recalculate just scheduled one)
+  clearTimeout(window._urlTimer);
   history.replaceState(null, '', window.location.pathname);
 }
 
@@ -950,9 +951,17 @@ function recalculate() {
   // Debounced URL sync — keeps address bar current without history spam
   clearTimeout(window._urlTimer);
   window._urlTimer = setTimeout(() => {
-    const shareUrl = buildShareURLFromState(normalizeShareState(readShareStateFromDOM()));
-    const params = new URL(shareUrl).search;
-    if (params) history.replaceState(null, '', params);
+    const normalized = normalizeShareState(readShareStateFromDOM());
+    if (Object.keys(normalized).length === 0) {
+      // All at defaults — keep URL clean (no ?v=1)
+      if (window.location.search) {
+        history.replaceState(null, '', window.location.pathname);
+      }
+    } else {
+      const shareUrl = buildShareURLFromState(readShareStateFromDOM());
+      const params = new URL(shareUrl).search;
+      history.replaceState(null, '', params);
+    }
   }, 500);
 }
 

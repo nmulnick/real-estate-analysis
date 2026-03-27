@@ -468,3 +468,40 @@ class TestResetBehavior:
     def test_reset_triggers_recalculate(self):
         """resetToDefaults calls recalculate()."""
         assert 'recalculate()' in self.fn
+
+    def test_reset_cancels_url_timer(self):
+        """resetToDefaults cancels debounced URL timer before clearing URL."""
+        assert 'clearTimeout(window._urlTimer)' in self.fn
+
+
+class TestURLSyncRegression:
+    """Verify URL sync doesn't produce spurious params on default state."""
+
+    def setup_method(self):
+        self.html = _read_html()
+
+    def test_sync_checks_normalized_emptiness(self):
+        """URL sync checks if normalizeShareState returned empty object."""
+        assert 'Object.keys(normalized).length === 0' in self.html
+
+    def test_sync_clears_url_when_all_defaults(self):
+        """URL sync clears to clean path when all values are at defaults."""
+        # The debounced sync should use window.location.pathname to clear
+        assert 'window.location.pathname' in self.html
+
+    def test_sync_only_writes_params_when_non_default(self):
+        """URL sync only calls buildShareURLFromState when there are non-default values."""
+        # Verify the else branch builds the URL only when normalized is non-empty
+        # The structure should be: if empty → clear, else → build URL
+        assert 'Object.keys(normalized).length === 0' in self.html
+        assert 'buildShareURLFromState' in self.html
+
+    def test_no_bare_v1_on_default_state(self):
+        """The debounced sync never produces a bare ?v=1 URL when all at defaults.
+        This prevents the refresh-clobbers-toggles bug."""
+        # Verify normalizeShareState is checked BEFORE buildShareURLFromState
+        sync_start = self.html.index('Debounced URL sync')
+        sync_block = self.html[sync_start:self.html.index('}, 500)', sync_start) + 6]
+        pos_check = sync_block.index('Object.keys(normalized)')
+        pos_build = sync_block.index('buildShareURLFromState')
+        assert pos_check < pos_build, "Must check for empty state before building URL"
