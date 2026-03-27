@@ -97,7 +97,7 @@
   .card h3 { font-size: 0.9rem; font-weight: 600; color: var(--gray-700); margin: 1rem 0 0.6rem; }
 
   /* KPI */
-  .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem; margin-bottom: 1.25rem; }
+  .kpi-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.75rem; margin-bottom: 1.25rem; }
   .kpi { background: white; border-radius: 10px; padding: 1rem 1.15rem; border: 1px solid var(--gray-200); }
   .kpi .label { font-size: 0.7rem; color: var(--gray-500); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
   .kpi .value { font-size: 1.25rem; font-weight: 700; margin-top: 0.15rem; }
@@ -156,7 +156,7 @@
     .app { flex-direction: column; }
     .sidebar { width: 100%; min-width: auto; height: auto; position: static; border-right: none; border-bottom: 1px solid var(--gray-200); max-height: none; }
     .main { padding: 1.25rem; }
-    .kpi-grid { grid-template-columns: 1fr 1fr; }
+    .kpi-grid { grid-template-columns: repeat(3, 1fr); }
     .chart-grid, .sens-grid { grid-template-columns: 1fr; }
     .chart-box { max-width: 100%; }
     table { font-size: 0.78rem; }
@@ -284,6 +284,7 @@
   <div class="kpi" id="kpiNPV"><div class="label">NPV Winner <span class="tip">?<span class="tiptext">Which scenario is worth more in today's dollars, discounting all future cash flows at the discount rate.</span></span></div><div class="value" id="kpiNPVval"></div><div class="detail" id="kpiNPVdet"></div></div>
   <div class="kpi" id="kpiIRR"><div class="label" id="kpiIRRlbl">Hold IRR <span class="tip">?<span class="tiptext">The annualized return you effectively earn by choosing to hold instead of sell. Compare to the reinvestment rate — above means hold wins.</span></span></div><div class="value" id="kpiIRRval"></div><div class="detail" id="kpiIRRdet"></div></div>
   <div class="kpi"><div class="label" id="kpiPWlbl">Exit Price <span class="tip">?<span class="tiptext">The expected sale price at the end of the hold period. If probability-weighted mode is on, this is the weighted average of all scenarios.</span></span></div><div class="value" id="kpiPWval"></div><div class="detail" id="kpiPWdet"></div></div>
+  <div class="kpi"><div class="label" id="kpiBElbl">Breakeven Sale Price <span class="tip">?<span class="tiptext">The minimum gross sale price today that would match Scenario B's after-tax future value. If the current offer is below this, holding is favored.</span></span></div><div class="value" id="kpiBEval"></div><div class="detail" id="kpiBEdet"></div></div>
 </div>
 
 <!-- Charts -->
@@ -622,6 +623,35 @@ function recalculate() {
   document.getElementById('kpiPWdet').textContent = p.multiExit
     ? 'Bull ' + fmtM(p.exitBull) + ' · Base ' + fmtM(p.exitBase) + ' · Bear ' + fmtM(p.exitBear)
     : 'Single exit price';
+
+  // --- Breakeven Sale Price ---
+  // Find the gross sale price today (Scenario A) that produces the same after-tax FV as Scenario B.
+  // Use binary search since the tax calc is non-linear.
+  const targetFV = pw.b.totalFV;
+  let lo = 0, hi = targetFV * 3;
+  for (let i = 0; i < 100; i++) {
+    const mid = (lo + hi) / 2;
+    // Simulate Scenario A with gross sale = mid
+    const txC = mid * p.txNow;
+    const ns = mid - txC;
+    const sg = Math.max(ns - p.costBasis, 0);
+    const st = calcCGTax(sg, p.cumDep, p);
+    const ap = ns - st;
+    const fvG = ap * Math.pow(1 + p.reinvRate, p.holdYears);
+    const ig = fvG - ap;
+    const it = calcCGTax(Math.max(ig, 0), 0, p);
+    const fvAT = fvG - it;
+    if (fvAT < targetFV) lo = mid; else hi = mid;
+  }
+  const breakevenGross = (lo + hi) / 2;
+  const gap = p.grossSale - breakevenGross;
+  const aboveBelow = gap >= 0 ? 'above' : 'below';
+  const favorsSellHold = gap >= 0 ? 'favors selling' : 'favors holding';
+
+  document.getElementById('kpiBElbl').innerHTML = 'Breakeven Sale Price <span class="tip">?<span class="tiptext">The minimum gross sale price you\'d need today (Scenario A) to match Scenario B\'s after-tax future value. If your current offer is below this, holding is favored.</span></span>';
+  document.getElementById('kpiBEval').textContent = fmtM(breakevenGross);
+  document.getElementById('kpiBEval').style.color = gap >= 0 ? 'var(--blue)' : 'var(--green)';
+  document.getElementById('kpiBEdet').textContent = 'Offer ' + fmtM(Math.abs(gap)) + ' ' + aboveBelow + ' → ' + favorsSellHold;
 
   // --- Charts ---
   const labels4 = bResults.map(s => s.shortLabel);
