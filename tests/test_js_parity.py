@@ -12,10 +12,12 @@ with open(_ENGINE_PATH) as _f:
     _ENGINE_SRC = _f.read()
 
 # Append a runner that reads params from argv, calls calcA/calcB, and prints JSON
+# Node v25+ with -e and -- shifts args: script args start at argv[1], not argv[2]
 JS_ENGINE = _ENGINE_SRC + '''
 const E = RealEstateEngine;
-const p = JSON.parse(process.argv[2]);
-const exitPrice = parseFloat(process.argv[3]);
+const args = process.argv.slice(1);
+const p = JSON.parse(args[0]);
+const exitPrice = parseFloat(args[1]);
 const a = E.calcA(p);
 const b = E.calcB(exitPrice, p);
 console.log(JSON.stringify({ a, b }));
@@ -45,7 +47,8 @@ def make_params(gross=100e6, basis=8.425e6, hold=10, reinv=0.06, disc=0.07,
                 wa_enabled=False, wa_rate=0.0, wa_threshold=250000,
                 dep_recap=0.0, cum_dep=0, ord_rate=0.37,
                 init_carry=0, carry_esc=0.03,
-                noi_p1=600000, noi_p2=2000000, p1_end=3.5):
+                noi_p1=600000, noi_p2=2000000, p1_end=3.5,
+                reet_enabled=True, reet_local_rate=0.005):
     return {
         "grossSale": gross, "costBasis": basis, "holdYears": hold,
         "reinvRate": reinv, "discRate": disc,
@@ -55,6 +58,7 @@ def make_params(gross=100e6, basis=8.425e6, hold=10, reinv=0.06, disc=0.07,
         "depRecap": dep_recap, "cumDep": cum_dep, "ordRate": ord_rate,
         "initCarry": init_carry, "carryEsc": carry_esc,
         "noiP1": noi_p1, "noiP2": noi_p2, "p1End": p1_end,
+        "reetEnabled": reet_enabled, "reetLocalRate": reet_local_rate,
     }
 
 
@@ -80,6 +84,8 @@ def set_python_params(params):
     ra.noi_phase1 = params["noiP1"]
     ra.noi_phase2 = params["noiP2"]
     ra.phase1_end_year = params["p1End"]
+    ra.reet_enabled = params.get("reetEnabled", True)
+    ra.reet_local_rate = params.get("reetLocalRate", 0.005)
 
 
 TOL = 1.0  # $1 tolerance

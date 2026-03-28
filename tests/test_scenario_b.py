@@ -95,16 +95,20 @@ class TestScenarioBExit:
     def test_exit_1031(self):
         """1031: exit CG tax = $0."""
         b = ra.calc_scenario_b(200_000_000)
+        reet = ra.calc_reet(200e6)["total_reet"]
+        net_exit = 200e6 - 200e6 * 0.04 - reet
         assert b["exit_tx_costs"] == pytest.approx(200_000_000 * 0.04, abs=1)
-        assert b["net_exit"] == pytest.approx(192_000_000, abs=1)
+        assert b["net_exit"] == pytest.approx(net_exit, abs=1)
         assert b["exit_tax"] == pytest.approx(0, abs=1)
-        assert b["net_exit_after_tax"] == pytest.approx(192_000_000, abs=1)
+        assert b["net_exit_after_tax"] == pytest.approx(net_exit, abs=1)
 
     def test_exit_with_tax(self):
         """Non-1031: CG tax on gain above basis."""
         set_1031_off()
         b = ra.calc_scenario_b(200_000_000)
-        gain = 192_000_000 - 8_425_000  # $183,575,000
+        reet = ra.calc_reet(200e6)["total_reet"]
+        net_exit = 200e6 - 200e6 * 0.04 - reet
+        gain = net_exit - 8_425_000
         expected_tax = gain * (0.20 + 0.038)
         assert b["exit_tax"] == pytest.approx(expected_tax, abs=1)
 

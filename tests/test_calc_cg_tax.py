@@ -136,17 +136,20 @@ class TestWAToggleIntegration:
         assert a_on["sale_tax"] >= a_off["sale_tax"]
 
     def test_wa_tax_amount_is_correct(self):
-        """Verify exact WA tax amount on a known gain."""
+        """Verify exact WA tax amount on a known gain (with REET)."""
         ra.federal_cap_gains_rate = 0.20
         ra.niit_rate = 0.038
         ra.wa_cap_gains_enabled = True
         ra.cumulative_depreciation = 0
 
-        # Net sale = $86M, adjusted basis = $8.425M
-        # Recognized gain = $86M - $8.425M = $77.575M
-        # WA tax = ($77.575M - $250K) * 7% = $77.325M * 0.07 = $5,412,750
+        # REET on $100M = $3,469,075 (state graduated + 0.5% local)
+        # Net sale = $100M - $14M tx - $3,469,075 REET = $82,530,925
+        # Recognized gain = $82,530,925 - $8,425,000 = $74,105,925
         a = ra.calc_scenario_a()
-        fed_niit = 77_575_000 * 0.238
-        wa = (77_575_000 - 250_000) * 0.07
+        reet = ra.calc_reet(100e6)["total_reet"]
+        net_sale = 100e6 - 100e6 * 0.14 - reet
+        gain = net_sale - 8_425_000
+        fed_niit = gain * 0.238
+        wa = (gain - 250_000) * 0.07
         expected_total = fed_niit + wa
         assert a["sale_tax"] == pytest.approx(expected_total, abs=1)

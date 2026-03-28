@@ -48,10 +48,12 @@ class TestZeroAndExtremeInputs:
         assert b["total_fv_after_tax"] == b["compounded_cf"]
 
     def test_100pct_tx_cost(self):
-        """100% transaction cost — net proceeds = 0."""
+        """100% transaction cost — net proceeds = -REET (tx eats gross, REET on top)."""
         a = ra.calc_scenario_a(tx_cost_rate=1.0)
-        assert a["net_sale_proceeds"] == pytest.approx(0, abs=1)
-        assert a["future_value_after_tax"] == pytest.approx(0, abs=1)
+        reet = ra.calc_reet(ra.current_gross_sale_price)["total_reet"]
+        assert a["net_sale_proceeds"] == pytest.approx(-reet, abs=1)
+        expected_fv = -reet * (1.06 ** 10)  # negative proceeds compound negatively
+        assert a["future_value_after_tax"] == pytest.approx(expected_fv, abs=1)
 
     def test_zero_reinvestment_rate(self):
         """0% reinvestment — FV should equal after-tax proceeds (no growth)."""

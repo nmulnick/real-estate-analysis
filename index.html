@@ -555,7 +555,7 @@ function buildShareURLFromState(state) {
 
 function readShareStateFromURL(search) {
   const params = new URLSearchParams(search);
-  if (!params.has('v') && params.size === 0) return null; // no share params
+  if (!params.has('v') && [...params.keys()].length === 0) return null; // no share params
 
   const state = {};
   // Start with all defaults
@@ -1150,10 +1150,7 @@ if (!urlState) {
 
 // Phase 4: Bind events with specific routing
 document.querySelector('.sidebar').addEventListener('input', function(e) {
-  const id = e.target.id;
-  if (id === 'in_1031') { handle1031ToggleChange(); return; }
-  if (id === 'in_reet_enabled') { applyREETFieldLock(e.target.checked); recalculate(); return; }
-  if (id === 'in_multi_exit') { toggleExitMode(); return; }
+  if (e.target.type === 'checkbox') return; // checkboxes handled by 'change' only
   recalculate();
 });
 document.querySelector('.sidebar').addEventListener('change', function(e) {
