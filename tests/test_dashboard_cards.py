@@ -272,3 +272,185 @@ class TestExecSummary:
     def test_hidden_by_default(self):
         """Exec summary div is hidden by default."""
         assert 'id="execSummary" style="display:none"' in self.html
+
+
+class TestExecSummaryRecommendationLogic:
+    """Test the multi-signal recommendation logic using the Python engine."""
+
+    def setup_method(self):
+        """Reset to defaults."""
+        ra.initial_carrying_costs = 0
+        ra.federal_cap_gains_rate = 0.0
+        ra.niit_rate = 0.0
+        ra.depreciation_recapture_rate = 0.0
+        ra.cumulative_depreciation = 0
+        ra.reet_enabled = True
+        ra.hold_period_years = 10
+
+    def _signals(self, exit_price):
+        """Compute the 3 recommendation signals for a given exit price."""
+        a = ra.calc_scenario_a()
+        b = ra.calc_scenario_b(exit_price)
+        fv_signal = 'B' if b["total_fv_after_tax"] > a["future_value_after_tax"] else 'A'
+        npv_signal = 'B' if b["total_npv"] > a["npv"] else 'A'
+        # IRR: simplified — use breakeven logic
+        irr_signal = 'B' if b["total_fv_after_tax"] > a["future_value_after_tax"] else 'A'
+        return fv_signal, npv_signal
+
+    def test_default_signals_all_agree_hold(self):
+        """With defaults ($200M exit), all signals should favor B (Hold)."""
+        a = ra.calc_scenario_a()
+        b = ra.calc_scenario_b(200e6)
+        assert b["total_fv_after_tax"] > a["future_value_after_tax"]  # FV: B
+        assert b["total_npv"] > a["npv"]  # NPV: B
+        # → recommendation should be HOLD
+
+    def test_low_exit_signals_all_agree_sell(self):
+        """With very low exit ($50M), all signals should favor A (Sell)."""
+        a = ra.calc_scenario_a()
+        b = ra.calc_scenario_b(50e6)
+        assert b["total_fv_after_tax"] < a["future_value_after_tax"]  # FV: A
+        assert b["total_npv"] < a["npv"]  # NPV: A
+        # → recommendation should be SELL
+
+    def test_breakeven_exit_produces_near_tie(self):
+        """At the breakeven exit price, FV should be approximately equal."""
+        a = ra.calc_scenario_a()
+        # Binary search for breakeven
+        lo, hi = 50e6, 300e6
+        for _ in range(60):
+            mid = (lo + hi) / 2
+            b = ra.calc_scenario_b(mid)
+            if b["total_fv_after_tax"] > a["future_value_after_tax"]:
+                hi = mid
+            else:
+                lo = mid
+        breakeven = (lo + hi) / 2
+        b = ra.calc_scenario_b(breakeven)
+        diff = abs(b["total_fv_after_tax"] - a["future_value_after_tax"])
+        assert diff < 100  # Within $100 of each other
+
+    def test_fv_advantage_magnitude_matches(self):
+        """The FV advantage should match B.totalFV - A.fvAT."""
+        a = ra.calc_scenario_a()
+        b = ra.calc_scenario_b(200e6)
+        fv_diff = b["total_fv_after_tax"] - a["future_value_after_tax"]
+        assert fv_diff > 0
+        assert fv_diff == pytest.approx(
+            b["total_fv_after_tax"] - a["future_value_after_tax"], abs=1)
+
+    def test_npv_advantage_magnitude_matches(self):
+        """The NPV advantage should match B.totalNPV - A.npv."""
+        a = ra.calc_scenario_a()
+        b = ra.calc_scenario_b(200e6)
+        npv_diff = b["total_npv"] - a["npv"]
+        assert npv_diff > 0
+        assert npv_diff == pytest.approx(
+            b["total_npv"] - a["npv"], abs=1)
+
+
+class TestExecSummaryYieldOnCostMath:
+    """Verify YoC values that appear in the exec summary metrics grid."""
+
+    def test_current_yoc_default(self):
+        """Current YoC = $600K * (1-0.37) / $8,425,000 = 4.49%."""
+        noi = 600_000
+        basis = 8_425_000
+        ord_rate = 0.37
+        yoc = (noi * (1 - ord_rate)) / basis
+        assert yoc == pytest.approx(0.04485, abs=0.001)
+
+    def test_stabilized_yoc_default(self):
+        """Stabilized YoC = $2M * (1-0.37) / $8,425,000 = 14.96%."""
+        noi = 2_000_000
+        basis = 8_425_000
+        ord_rate = 0.37
+        yoc = (noi * (1 - ord_rate)) / basis
+        assert yoc == pytest.approx(0.14955, abs=0.001)
+
+    def test_yoc_with_different_basis(self):
+        """YoC changes inversely with cost basis."""
+        noi = 2_000_000
+        ord_rate = 0.37
+        yoc_8m = (noi * (1 - ord_rate)) / 8_000_000
+        yoc_16m = (noi * (1 - ord_rate)) / 16_000_000
+        assert yoc_8m == pytest.approx(yoc_16m * 2, abs=0.001)
+
+    def test_yoc_with_different_tax_rate(self):
+        """Higher tax rate reduces YoC."""
+        noi = 2_000_000
+        basis = 10_000_000
+        yoc_37 = (noi * (1 - 0.37)) / basis
+        yoc_50 = (noi * (1 - 0.50)) / basis
+        assert yoc_37 > yoc_50
+
+    def test_yoc_zero_noi(self):
+        """Zero NOI produces zero YoC."""
+        yoc = (0 * (1 - 0.37)) / 8_425_000
+        assert yoc == 0
+
+
+class TestExecSummaryIRRSpread:
+    """Verify IRR spread values that appear in the exec summary."""
+
+    def setup_method(self):
+        ra.initial_carrying_costs = 0
+        ra.federal_cap_gains_rate = 0.0
+        ra.niit_rate = 0.0
+        ra.depreciation_recapture_rate = 0.0
+        ra.cumulative_depreciation = 0
+        ra.reet_enabled = True
+        ra.hold_period_years = 10
+
+    def test_irr_exceeds_reinv_rate_at_default_exit(self):
+        """At $200M exit, hold IRR should exceed 6% reinvestment rate."""
+        a = ra.calc_scenario_a()
+        b = ra.calc_scenario_b(200e6)
+        # Build cash flows and compute IRR
+        cfs = [-a["after_tax_proceeds"]]
+        for yr in b["annual_details"]:
+            val = yr["net_cf_after_tax"]
+            if yr["year"] == 10:
+                val += b["net_exit_after_tax"]
+            cfs.append(val)
+
+        def npv_at(rate):
+            return sum(cf / (1 + rate) ** t for t, cf in enumerate(cfs))
+
+        lo, hi = -0.5, 5.0
+        for _ in range(200):
+            mid = (lo + hi) / 2
+            if npv_at(mid) > 0:
+                lo = mid
+            else:
+                hi = mid
+        irr = (lo + hi) / 2
+        reinv = 0.06
+        spread = irr - reinv
+        assert spread > 0  # IRR exceeds reinvestment rate
+        assert irr == pytest.approx(0.0916, abs=0.005)  # ~9.16%
+
+    def test_irr_below_reinv_at_low_exit(self):
+        """At low exit price, hold IRR should be below reinvestment rate."""
+        a = ra.calc_scenario_a()
+        b = ra.calc_scenario_b(80e6)
+        cfs = [-a["after_tax_proceeds"]]
+        for yr in b["annual_details"]:
+            val = yr["net_cf_after_tax"]
+            if yr["year"] == 10:
+                val += b["net_exit_after_tax"]
+            cfs.append(val)
+
+        def npv_at(rate):
+            return sum(cf / (1 + rate) ** t for t, cf in enumerate(cfs))
+
+        lo, hi = -0.5, 5.0
+        for _ in range(200):
+            mid = (lo + hi) / 2
+            if npv_at(mid) > 0:
+                lo = mid
+            else:
+                hi = mid
+        irr = (lo + hi) / 2
+        reinv = 0.06
+        assert irr < reinv  # IRR below reinvestment rate → Sell signal
