@@ -800,7 +800,7 @@ function recalculate() {
   const fvWinner = fvDiffM > 0 ? 'B' : 'A';
   document.getElementById('kpiFVval').textContent = (fvWinner === 'B' ? 'B +' : 'A +') + showM(Math.abs(fvDiffM));
   document.getElementById('kpiFVval').style.color = fvWinner === 'B' ? 'var(--green)' : 'var(--blue)';
-  document.getElementById('kpiFVdet').textContent = showM(fvB_m) + ' vs ' + showM(fvA_m);
+  document.getElementById('kpiFVdet').textContent = showM(fvWinner === 'A' ? fvA_m : fvB_m) + ' vs ' + showM(fvWinner === 'A' ? fvB_m : fvA_m);
 
   const npvB_m = roundM(expected.b.totalNPV), npvA_m = roundM(a.npv);
   const npvDiffM = +(npvB_m - npvA_m).toFixed(1);
