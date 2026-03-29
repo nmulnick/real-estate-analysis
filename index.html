@@ -817,14 +817,14 @@ function recalculate() {
   } else {
     document.getElementById('kpiIRRval').textContent = fmtP(expectedIRR);
     document.getElementById('kpiIRRval').style.color = expectedIRR > p.reinvRate ? 'var(--green)' : 'var(--blue)';
-    document.getElementById('kpiIRRdet').textContent = (expectedIRR > p.reinvRate ? 'Above' : 'Below') + ' ' + fmtP1(p.reinvRate) + ' reinv. → favors ' + (expectedIRR > p.reinvRate ? 'holding' : 'selling');
+    document.getElementById('kpiIRRdet').textContent = 'vs ' + fmtP1(p.reinvRate) + ' reinv. rate';
   }
 
   document.getElementById('kpiIRRlbl').innerHTML = (p.multiExit ? 'Expected Hold IRR' : 'Hold IRR') + ' <span class="tip">?<span class="tiptext">The annualized return you effectively earn by choosing to hold instead of sell. Compare to the reinvestment rate — above means hold wins.</span></span>';
   document.getElementById('kpiPWlbl').innerHTML = 'Exit Net Proceeds <span class="tip">?<span class="tiptext">Net proceeds after transaction costs, REET, and capital gains tax on the expected exit sale in Scenario B.</span></span>';
   document.getElementById('kpiPWval').textContent = fmtM(expected.b.netExitAT);
   document.getElementById('kpiPWval').style.color = 'var(--green-700)';
-  document.getElementById('kpiPWdet').textContent = fmtM(expectedExitPrice) + ' gross → ' + fmtM(expected.b.netExitAT) + ' net';
+  document.getElementById('kpiPWdet').textContent = 'From ' + fmtM(expectedExitPrice) + ' gross exit';
 
   // --- Breakeven Sale Price ---
   const beResult = calcBreakevenSalePrice(expected.b.totalFV, p);
@@ -841,7 +841,7 @@ function recalculate() {
     const favorsSellHold = gap >= 0 ? 'favors selling' : 'favors holding';
     document.getElementById('kpiBEval').textContent = fmtM(breakevenGross);
     document.getElementById('kpiBEval').style.color = gap >= 0 ? 'var(--blue)' : 'var(--green)';
-    document.getElementById('kpiBEdet').textContent = 'Offer ' + fmtM(Math.abs(gap)) + ' ' + aboveBelow + ' → ' + favorsSellHold;
+    document.getElementById('kpiBEdet').textContent = 'Offer ' + fmtM(Math.abs(gap)) + ' ' + aboveBelow;
   }
 
   // --- Charts ---
