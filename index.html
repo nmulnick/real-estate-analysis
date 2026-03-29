@@ -689,7 +689,11 @@ function getInputs() {
 // FORMATTERS
 // ============================================================
 const fmtD = v => '$' + Math.round(v).toLocaleString('en-US');
-const fmtM = v => { const m = (v / 1e6).toFixed(1); return '$' + parseFloat(m).toLocaleString('en-US', {minimumFractionDigits: 1, maximumFractionDigits: 1}) + 'M'; };
+const fmtM = v => {
+  const abs = Math.abs(v);
+  if (abs >= 1e9) { const b = (v / 1e9).toFixed(1); return '$' + parseFloat(b).toLocaleString('en-US', {minimumFractionDigits: 1, maximumFractionDigits: 1}) + 'B'; }
+  const m = (v / 1e6).toFixed(1); return '$' + parseFloat(m).toLocaleString('en-US', {minimumFractionDigits: 1, maximumFractionDigits: 1}) + 'M';
+};
 const fmtP = v => (v * 100).toFixed(2) + '%';
 const fmtP1 = v => (v * 100).toFixed(1) + '%';
 const negM = v => '−' + fmtM(Math.abs(v));
