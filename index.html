@@ -676,7 +676,6 @@ function buildExecSummary() {
   const a = calcA(p);
   const exitAnalysis = evaluateExitScenarios(p, a);
   const expected = exitAnalysis.summary;
-  const exitPrice = expected.price;
   const beResult = calcBreakevenSalePrice(expected.b.totalFV, p);
   const breakevenGross = beResult.value;
 
@@ -753,7 +752,7 @@ function buildExecSummary() {
     '<div class="exec-metric"><div class="em-label">IRR Spread</div><div class="em-value">' + (irrSpread !== null ? (irrSpread >= 0 ? '+' : '') + fmtP(irrSpread) : 'N/A') + '</div></div>' +
     '<div class="exec-metric"><div class="em-label">Breakeven Price</div><div class="em-value">' + (breakevenGross !== null ? fmtM(breakevenGross) : 'N/A') + '</div></div>' +
     '<div class="exec-metric"><div class="em-label">Breakeven Gap</div><div class="em-value">' + (beGap !== null ? fmtM(Math.abs(beGap)) + ' ' + (beGap >= 0 ? 'above' : 'below') : 'N/A') + '</div></div>' +
-    '<div class="exec-metric"><div class="em-label">Yield on Cost</div><div class="em-value">' + fmtP(stabilizedYoC) + '</div></div>' +
+    '<div class="exec-metric"><div class="em-label">Yield on Cost</div><div class="em-value">' + fmtP(currentYoC) + ' / ' + fmtP(stabilizedYoC) + '</div></div>' +
     '<div class="exec-metric"><div class="em-label">Hold Period</div><div class="em-value">' + p.holdYears + ' years</div></div>' +
     '</div>' +
 
