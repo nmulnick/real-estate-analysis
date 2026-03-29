@@ -847,7 +847,6 @@ function recalculate() {
   const offerLine = [];
   for (let yr = 1; yr <= 15; yr++) {
     const pAlt = Object.assign({}, p, { holdYears: yr });
-    const aAlt = calcA(pAlt);
     const bAlt = calcB(expectedExitPrice, pAlt);
     const be = calcBreakevenSalePrice(bAlt.totalFV, pAlt);
     beCurveLabels.push(yr);
