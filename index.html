@@ -742,6 +742,7 @@ function buildExecSummary() {
     '1031 Exchange: ' + (is1031 ? 'Yes' : 'No') + ' · ' +
     'REET: ' + (p.reetEnabled ? 'On' : 'Off') + ' · ' +
     (p.multiExit ? 'Probability-weighted (' + exitAnalysis.scenarioDefs.length + ' scenarios)' : 'Single exit scenario') +
+    (exitAnalysis.weightNotice ? ' · ' + exitAnalysis.weightNotice : '') +
     '</div>' +
 
     // Key metrics 2x4
