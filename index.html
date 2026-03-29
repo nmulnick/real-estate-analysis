@@ -337,14 +337,14 @@
   <div class="kpi" id="kpiFV"><div class="label" id="kpiFVlbl">FV Winner (Year 10) <span class="tip">?<span class="tiptext">Which scenario produces more total wealth at the end of the hold period, after all taxes.</span></span></div><div class="value" id="kpiFVval"></div><div class="detail" id="kpiFVdet"></div></div>
   <div class="kpi" id="kpiNPV"><div class="label">NPV Winner <span class="tip">?<span class="tiptext">Which scenario is worth more in today's dollars, discounting all future cash flows at the discount rate.</span></span></div><div class="value" id="kpiNPVval"></div><div class="detail" id="kpiNPVdet"></div></div>
   <div class="kpi" id="kpiIRR"><div class="label" id="kpiIRRlbl">Hold IRR <span class="tip">?<span class="tiptext">The annualized return you effectively earn by choosing to hold instead of sell. Compare to the reinvestment rate — above means hold wins.</span></span></div><div class="value" id="kpiIRRval"></div><div class="detail" id="kpiIRRdet"></div></div>
-  <div class="kpi"><div class="label" id="kpiPWlbl">Exit Price <span class="tip">?<span class="tiptext">The expected sale price at the end of the hold period. If probability-weighted mode is on, this is the weighted average of all scenarios.</span></span></div><div class="value" id="kpiPWval"></div><div class="detail" id="kpiPWdet"></div></div>
+  <div class="kpi"><div class="label" id="kpiPWlbl">After-Tax Exit Proceeds <span class="tip">?<span class="tiptext">Net proceeds after transaction costs, REET, and capital gains tax on the expected exit sale in Scenario B.</span></span></div><div class="value" id="kpiPWval"></div><div class="detail" id="kpiPWdet"></div></div>
   <div class="kpi"><div class="label" id="kpiBElbl">Breakeven Sale Price <span class="tip">?<span class="tiptext">The minimum gross sale price today that would match Scenario B's after-tax future value. If the current offer is below this, holding is favored.</span></span></div><div class="value" id="kpiBEval"></div><div class="detail" id="kpiBEdet"></div></div>
 </div>
 
 <!-- Charts -->
 <div class="chart-grid">
   <div class="chart-box"><h3 id="chartFVtitle">After-Tax Future Value (Year 10) <span class="tip">?<span class="tiptext">Total after-tax wealth at the end of the hold period for each scenario. Compares Sell Now proceeds (compounded) vs. Hold exit + accumulated cash flows.</span></span></h3><canvas id="chartFV"></canvas></div>
-  <div class="chart-box"><h3>Net Present Value Comparison <span class="tip">?<span class="tiptext">All future cash flows discounted to today's value. Taller bar = better deal in today's dollars.</span></span></h3><canvas id="chartNPV"></canvas></div>
+  <div class="chart-box"><h3>Breakeven vs Hold Period <span class="tip">?<span class="tiptext">Shows how the breakeven sale price changes as you vary the hold period. The dashed line is today's offer — where the curve crosses below it, selling now wins.</span></span></h3><canvas id="chartNPV"></canvas></div>
   <div class="chart-box"><h3>IRR by Exit Scenario <span class="tip">?<span class="tiptext">The annualized return of holding. Red dashed line shows the reinvestment rate — bars above the line favor holding.</span></span></h3><canvas id="chartIRR"></canvas></div>
   <div class="chart-box"><h3>Scenario B Cash Flow Build-Up <span class="tip">?<span class="tiptext">Annual after-tax net cash flow (bars) and the cumulative compounded balance (line) over the hold period.</span></span></h3><canvas id="chartCF"></canvas></div>
 </div>
@@ -689,7 +689,7 @@ function getInputs() {
 // FORMATTERS
 // ============================================================
 const fmtD = v => '$' + Math.round(v).toLocaleString('en-US');
-const fmtM = v => '$' + (v / 1e6).toFixed(1) + 'M';
+const fmtM = v => { const m = (v / 1e6).toFixed(1); return '$' + parseFloat(m).toLocaleString('en-US', {minimumFractionDigits: 1, maximumFractionDigits: 1}) + 'M'; };
 const fmtP = v => (v * 100).toFixed(2) + '%';
 const fmtP1 = v => (v * 100).toFixed(1) + '%';
 const negM = v => '−' + fmtM(Math.abs(v));
@@ -730,12 +730,12 @@ function initCharts() {
     options: { responsive: true, plugins: { tooltip: { callbacks: { label: c => c.dataset.label + ': $' + c.parsed.y.toFixed(1) + 'M' }}}, scales: { y: { beginAtZero: true, ticks: { callback: v => '$' + v + 'M' }}}}
   });
   chartNPV = new Chart(document.getElementById('chartNPV'), {
-    type: 'bar',
+    type: 'line',
     data: { labels: [], datasets: [
-      { label: 'Scenario A NPV', data: [], backgroundColor: blueA, borderRadius: 4 },
-      { label: 'Scenario B NPV', data: [], backgroundColor: greenA, borderRadius: 4 },
+      { label: 'Breakeven Price', data: [], borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,0.1)', fill: true, tension: 0.3, pointRadius: 3, pointBackgroundColor: '#2563eb' },
+      { label: 'Current Offer', data: [], borderColor: '#dc2626', borderDash: [6, 4], borderWidth: 2, pointRadius: 0, fill: false },
     ]},
-    options: { responsive: true, plugins: { tooltip: { callbacks: { label: c => c.dataset.label + ': $' + c.parsed.y.toFixed(1) + 'M' }}}, scales: { y: { beginAtZero: true, ticks: { callback: v => '$' + v + 'M' }}}}
+    options: { responsive: true, plugins: { tooltip: { callbacks: { label: c => c.dataset.label + ': $' + c.parsed.y.toFixed(1) + 'M' }}, legend: { display: true }}, scales: { y: { ticks: { callback: v => '$' + v + 'M' }, title: { display: true, text: 'Gross Sale Price' }}, x: { title: { display: true, text: 'Hold Period (Years)' }}}}
   });
   chartIRR = new Chart(document.getElementById('chartIRR'), {
     type: 'bar',
@@ -811,12 +811,10 @@ function recalculate() {
   }
 
   document.getElementById('kpiIRRlbl').innerHTML = (p.multiExit ? 'Expected Hold IRR' : 'Hold IRR') + ' <span class="tip">?<span class="tiptext">The annualized return you effectively earn by choosing to hold instead of sell. Compare to the reinvestment rate — above means hold wins.</span></span>';
-  document.getElementById('kpiPWlbl').innerHTML = (p.multiExit ? 'Expected Exit Price' : 'Exit Price') + ' <span class="tip">?<span class="tiptext">The expected sale price at the end of the hold period. If probability-weighted mode is on, this is the expected exit price after weight normalization.</span></span>';
-  document.getElementById('kpiPWval').textContent = fmtM(expectedExitPrice);
-  document.getElementById('kpiPWval').style.color = 'var(--gray-700)';
-  document.getElementById('kpiPWdet').textContent = p.multiExit
-    ? 'Bull ' + fmtM(p.exitBull) + ' · Base ' + fmtM(p.exitBase) + ' · Bear ' + fmtM(p.exitBear)
-    : 'Single exit price';
+  document.getElementById('kpiPWlbl').innerHTML = (p.multiExit ? 'Expected AT Exit Proceeds' : 'After-Tax Exit Proceeds') + ' <span class="tip">?<span class="tiptext">Net proceeds after transaction costs, REET, and capital gains tax on the expected exit sale in Scenario B.</span></span>';
+  document.getElementById('kpiPWval').textContent = fmtM(expected.b.netExitAT);
+  document.getElementById('kpiPWval').style.color = 'var(--green-700)';
+  document.getElementById('kpiPWdet').textContent = 'Gross ' + fmtM(expectedExitPrice) + ' → net ' + fmtM(expected.b.netExitAT);
 
   // --- Breakeven Sale Price ---
   const beResult = calcBreakevenSalePrice(expected.b.totalFV, p);
@@ -843,13 +841,26 @@ function recalculate() {
   chartFV.data.datasets[1].data = bResults.map(s => +(s.b.totalFV / 1e6).toFixed(1));
   chartFV.update();
 
-  chartNPV.data.labels = labels4;
-  chartNPV.data.datasets[0].data = labels4.map(() => +(a.npv / 1e6).toFixed(1));
-  chartNPV.data.datasets[1].data = bResults.map(s => +(s.b.totalNPV / 1e6).toFixed(1));
+  // Breakeven vs Hold Period curve: vary holdYears 1–15, compute breakeven for each
+  const beCurveLabels = [];
+  const beCurveData = [];
+  const offerLine = [];
+  for (let yr = 1; yr <= 15; yr++) {
+    const pAlt = Object.assign({}, p, { holdYears: yr });
+    const aAlt = calcA(pAlt);
+    const bAlt = calcB(expectedExitPrice, pAlt);
+    const be = calcBreakevenSalePrice(bAlt.totalFV, pAlt);
+    beCurveLabels.push(yr);
+    beCurveData.push(be.value !== null ? +(be.value / 1e6).toFixed(1) : null);
+    offerLine.push(+(p.grossSale / 1e6).toFixed(1));
+  }
+  chartNPV.data.labels = beCurveLabels;
+  chartNPV.data.datasets[0].data = beCurveData;
+  chartNPV.data.datasets[1].data = offerLine;
   chartNPV.update();
 
-  chartIRR.data.labels = labels4;
-  chartIRR.data.datasets[0].data = bResults.map(s => s.irr !== null ? +(s.irr * 100).toFixed(2) : 0);
+  chartIRR.data.labels = bResults.map(s => s.irr === null ? s.shortLabel + ' (No IRR)' : s.shortLabel);
+  chartIRR.data.datasets[0].data = bResults.map(s => s.irr !== null ? +(s.irr * 100).toFixed(2) : null);
   chartIRR.data.datasets[0].backgroundColor = bResults.map(s => s.irr === null ? grayA : (s.irr > p.reinvRate ? greenA : redA));
   chartIRR.update();
 
@@ -935,6 +946,12 @@ function recalculate() {
 
   // --- Assumptions Summary ---
   document.getElementById('tblAssumptions').innerHTML = [
+    tr('Current Gross Sale Price', fmtD(p.grossSale)),
+    tr('Cost Basis', fmtD(p.costBasis)),
+    tr('1031 Exchange', document.getElementById('in_1031').checked ? 'Yes' : 'No'),
+    tr('WA REET', p.reetEnabled ? 'On (' + fmtP1(p.reetLocalRate) + ' local)' : 'Off'),
+    tr('TX Cost — Sell Now', fmtP1(p.txNow)),
+    tr('TX Cost — Future', fmtP1(p.txFuture)),
     tr('NOI Phase 1 (current)', fmtD(p.noiP1)),
     tr('NOI Phase 2 (future)', fmtD(p.noiP2)),
     tr('Lease Transition Year', p.p1End.toString()),
