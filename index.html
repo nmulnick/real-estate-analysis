@@ -218,6 +218,7 @@
   .exec-summary .exec-assumptions table { width: 100%; font-size: 8pt; }
   .exec-summary .exec-assumptions td { padding: 1px 6px; }
   .exec-footer { font-size: 7pt; color: #9ca3af; border-top: 1px solid #e5e7eb; padding-top: 6px; }
+  .exec-scenario, .exec-sens, .exec-assumptions, .exec-banner, .exec-metrics { break-inside: avoid; }
 
   /* Tablet */
   @media (max-width: 1100px) {
@@ -620,9 +621,16 @@ function readShareStateFromURL(search) {
       state[key] = (raw === '1' || raw === 'true');
     } else {
       const num = parseFloat(raw);
-      if (!isNaN(num)) state[key] = num;
+      if (!isNaN(num) && isFinite(num)) state[key] = num;
     }
   }
+
+  // Range-clamp critical params to prevent Infinity/freeze with extreme URL values
+  if (state.hy !== undefined) state.hy = Math.min(50, Math.max(1, Math.round(state.hy)));
+  if (state.rr !== undefined) state.rr = Math.max(0, Math.min(state.rr, 100));
+  if (state.dr !== undefined) state.dr = Math.max(0, Math.min(state.dr, 100));
+  if (state.tn !== undefined) state.tn = Math.max(0, Math.min(state.tn, 100));
+  if (state.tf !== undefined) state.tf = Math.max(0, Math.min(state.tf, 100));
 
   return state;
 }
@@ -785,7 +793,7 @@ function buildExecSummary() {
     '</table></div>' +
 
     // Footer
-    '<div class="exec-footer">Not financial advice · Full analysis: ' + shareUrl + '</div>' +
+    '<div class="exec-footer">Not financial advice · Full analysis: ' + (shareUrl.length > 120 ? shareUrl.substring(0, 117) + '...' : shareUrl) + '</div>' +
     '</div>';
 }
 
@@ -827,7 +835,7 @@ function getInputs() {
   const singleExit = d('in_exit_single');
   return {
     grossSale: d('in_gross_sale'), costBasis: d('in_cost_basis'),
-    holdYears: Math.max(1, Math.round(v('in_hold'))),
+    holdYears: Math.min(50, Math.max(1, Math.round(v('in_hold')))),
     reinvRate: v('in_reinv') / 100, discRate: v('in_disc') / 100,
     multiExit: multiExit,
     exitSingle: singleExit,

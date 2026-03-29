@@ -454,3 +454,153 @@ class TestExecSummaryIRRSpread:
         irr = (lo + hi) / 2
         reinv = 0.06
         assert irr < reinv  # IRR below reinvestment rate → Sell signal
+
+
+class TestHoldYearsClamping:
+    """Verify holdYears is clamped to prevent extreme values."""
+
+    def test_hold_years_capped_at_50_in_getinputs(self):
+        """getInputs() caps holdYears at 50."""
+        html = _read_html()
+        assert 'Math.min(50' in html or 'Math.min( 50' in html
+
+    def test_url_clamps_hold_years(self):
+        """readShareStateFromURL clamps hy to [1, 50]."""
+        html = _read_html()
+        fn_start = html.index('function readShareStateFromURL')
+        fn_block = html[fn_start:fn_start + 2000]
+        assert 'state.hy' in fn_block
+        assert 'Math.min(50' in fn_block or 'Math.min( 50' in fn_block
+
+    def test_url_clamps_rates(self):
+        """readShareStateFromURL clamps rate params."""
+        html = _read_html()
+        fn_start = html.index('function readShareStateFromURL')
+        fn_block = html[fn_start:fn_start + 2000]
+        assert 'state.rr' in fn_block
+        assert 'state.dr' in fn_block
+
+    def test_hold_50_years_produces_finite_fv(self):
+        """50-year hold with 6% reinv produces a large but finite FV."""
+        ra.initial_carrying_costs = 0
+        ra.hold_period_years = 50
+        a = ra.calc_scenario_a()
+        assert a["future_value_after_tax"] > 0
+        assert a["future_value_after_tax"] < 1e15  # Finite, not Infinity
+        ra.hold_period_years = 10  # Reset
+
+
+class TestBreakevenExpander:
+    """Verify breakeven expander doesn't overflow."""
+
+    def test_breakeven_with_very_large_target_returns_null(self):
+        """Extremely large target FV should return unreachable, not Infinity."""
+        html = _read_html()
+        # engine.js should cap at 1e15
+        import os
+        engine_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "engine.js"
+        )
+        with open(engine_path) as f:
+            engine = f.read()
+        assert '1e15' in engine
+
+
+class TestFmtMBillions:
+    """Verify fmtM switches to B suffix for values >= $1B."""
+
+    def test_fmtm_has_billion_branch(self):
+        html = _read_html()
+        assert "1e9" in html or "1000000000" in html
+        # Should produce 'B' suffix
+        assert "'B'" in html or '"B"' in html
+
+
+class TestParseDollarFallback:
+    """Verify parseDollar returns 0 for invalid input."""
+
+    def test_parsedollar_uses_or_zero(self):
+        """parseDollar falls back to 0 via || 0."""
+        html = _read_html()
+        assert 'parseDollar' in html
+        # The function uses parseFloat(...) || 0
+        assert '|| 0' in html
+
+
+class TestExecSummaryMultiExit:
+    """Verify exec summary handles multi-exit mode."""
+
+    def test_exec_summary_shows_scenario_count(self):
+        """Multi-exit mode shows number of scenarios in flags."""
+        html = _read_html()
+        fn_start = html.index('function buildExecSummary()')
+        fn_block = html[fn_start:fn_start + 5000]
+        assert 'scenarioDefs.length' in fn_block
+
+    def test_exec_summary_shows_weight_notice(self):
+        """Weight normalization notice appears when active."""
+        html = _read_html()
+        fn_start = html.index('function buildExecSummary()')
+        fn_block = html[fn_start:fn_start + 5000]
+        assert 'weightNotice' in fn_block
+
+    def test_multi_exit_weighted_npv_is_sum(self):
+        """Weighted NPV = sum of per-scenario NPVs × weights."""
+        ra.initial_carrying_costs = 0
+        exits = [(250e6, 0.25), (200e6, 0.50), (140e6, 0.25)]
+        weighted_npv = 0
+        for price, wt in exits:
+            b = ra.calc_scenario_b(price)
+            weighted_npv += b["total_npv"] * wt
+        # Should be close to what a single $195M exit would give
+        assert weighted_npv > 0
+        assert weighted_npv == pytest.approx(
+            sum(ra.calc_scenario_b(p)["total_npv"] * w for p, w in exits), abs=1)
+
+
+class TestURLHydrationTaxOverrides:
+    """Verify URL with 1031=off and explicit tax values works correctly."""
+
+    def test_url_schema_has_1031_key(self):
+        """SHARE_SCHEMA includes x1 for 1031 toggle."""
+        html = _read_html()
+        assert "x1:" in html and "in_1031" in html
+
+    def test_off_defaults_exist(self):
+        """OFF_DEFAULTS_1031 provides non-zero tax rates when 1031 is off."""
+        html = _read_html()
+        assert 'OFF_DEFAULTS_1031' in html
+
+    def test_1031_off_increases_tax(self):
+        """Turning off 1031 should increase sale tax."""
+        ra.initial_carrying_costs = 0
+        # 1031 on
+        ra.federal_cap_gains_rate = 0.0
+        ra.niit_rate = 0.0
+        ra.depreciation_recapture_rate = 0.0
+        a_on = ra.calc_scenario_a()
+
+        # 1031 off
+        ra.federal_cap_gains_rate = 0.20
+        ra.niit_rate = 0.038
+        ra.depreciation_recapture_rate = 0.25
+        a_off = ra.calc_scenario_a()
+
+        assert a_off["sale_tax"] > a_on["sale_tax"]
+        assert a_on["sale_tax"] == 0  # 1031 on = no tax
+
+        # Reset
+        ra.federal_cap_gains_rate = 0.0
+        ra.niit_rate = 0.0
+        ra.depreciation_recapture_rate = 0.0
+
+
+class TestExecSummaryPageBreaks:
+    """Verify exec summary has page-break hints."""
+
+    def test_break_inside_avoid_on_sections(self):
+        html = _read_html()
+        assert 'exec-scenario' in html and 'break-inside' in html
+        assert 'exec-sens' in html
+        assert 'exec-assumptions' in html

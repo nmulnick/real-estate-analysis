@@ -349,6 +349,7 @@
     let hiFV = calcAFromGrossSale(hi, p).fvAT;
     for (let i = 0; i < 60 && hiFV < targetFV; i++) {
       hi *= 2;
+      if (hi > 1e15) return { value: null, status: 'unreachable' };
       hiFV = calcAFromGrossSale(hi, p).fvAT;
     }
     if (hiFV < targetFV) return { value: null, status: 'unreachable' };
