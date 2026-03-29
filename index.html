@@ -1000,7 +1000,7 @@ function recalculate() {
   document.getElementById('kpiPWlbl').innerHTML = 'Yield on Cost <span class="tip">?<span class="tiptext">After-tax cash-on-cash return on your cost basis from Scenario B\'s lease income. Current YoC uses Phase 1 NOI; stabilized uses Phase 2 NOI after the lease transition.</span></span>';
   document.getElementById('kpiPWval').textContent = fmtP(stabilizedYoC);
   document.getElementById('kpiPWval').style.color = 'var(--green-700)';
-  document.getElementById('kpiPWdet').textContent = fmtP(currentYoC) + ' current · ' + fmtP(stabilizedYoC) + ' stabilized';
+  document.getElementById('kpiPWdet').textContent = fmtP(currentYoC) + ' now / ' + fmtP(stabilizedYoC) + ' stab.';
 
   // --- Breakeven Sale Price ---
   const beResult = calcBreakevenSalePrice(expected.b.totalFV, p);
