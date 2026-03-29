@@ -791,17 +791,23 @@ function recalculate() {
   document.getElementById('chartFVtitle').innerHTML = 'After-Tax Future Value (' + yrLabel + ') <span class="tip">?<span class="tiptext">Total after-tax wealth at the end of the hold period for each scenario. Compares Sell Now proceeds (compounded) vs. Hold exit + accumulated cash flows.</span></span>';
 
   // --- KPIs ---
-  const fvDiff = expected.b.totalFV - a.fvAT;
-  const fvWinner = fvDiff > 0 ? 'B' : 'A';
-  document.getElementById('kpiFVval').textContent = (fvWinner === 'B' ? 'B +' : 'A +') + fmtM(Math.abs(fvDiff));
-  document.getElementById('kpiFVval').style.color = fvWinner === 'B' ? 'var(--green)' : 'var(--blue)';
-  document.getElementById('kpiFVdet').textContent = fmtM(expected.b.totalFV) + ' vs ' + fmtM(a.fvAT);
+  // KPI helper: round to 1 decimal in millions to avoid rounding mismatches
+  const roundM = v => Math.round(v / 1e5) / 10; // e.g. 196_831_000 → 196.8
+  const showM = m => '$' + m.toLocaleString('en-US', {minimumFractionDigits: 1, maximumFractionDigits: 1}) + 'M';
 
-  const npvDiff = expected.b.totalNPV - a.npv;
-  const npvWinner = npvDiff > 0 ? 'B' : 'A';
-  document.getElementById('kpiNPVval').textContent = (npvWinner === 'B' ? 'B +' : 'A +') + fmtM(Math.abs(npvDiff));
+  const fvB_m = roundM(expected.b.totalFV), fvA_m = roundM(a.fvAT);
+  const fvDiffM = +(fvB_m - fvA_m).toFixed(1);
+  const fvWinner = fvDiffM > 0 ? 'B' : 'A';
+  document.getElementById('kpiFVval').textContent = (fvWinner === 'B' ? 'B +' : 'A +') + showM(Math.abs(fvDiffM));
+  document.getElementById('kpiFVval').style.color = fvWinner === 'B' ? 'var(--green)' : 'var(--blue)';
+  document.getElementById('kpiFVdet').textContent = showM(fvB_m) + ' vs ' + showM(fvA_m);
+
+  const npvB_m = roundM(expected.b.totalNPV), npvA_m = roundM(a.npv);
+  const npvDiffM = +(npvB_m - npvA_m).toFixed(1);
+  const npvWinner = npvDiffM > 0 ? 'B' : 'A';
+  document.getElementById('kpiNPVval').textContent = (npvWinner === 'B' ? 'B +' : 'A +') + showM(Math.abs(npvDiffM));
   document.getElementById('kpiNPVval').style.color = npvWinner === 'B' ? 'var(--green)' : 'var(--blue)';
-  document.getElementById('kpiNPVdet').textContent = fmtM(npvWinner === 'A' ? a.npv : expected.b.totalNPV) + ' vs ' + fmtM(npvWinner === 'A' ? expected.b.totalNPV : a.npv);
+  document.getElementById('kpiNPVdet').textContent = showM(npvWinner === 'A' ? npvA_m : npvB_m) + ' vs ' + showM(npvWinner === 'A' ? npvB_m : npvA_m);
 
   const expectedIRR = expected.irr;
   if (expectedIRR === null) {
