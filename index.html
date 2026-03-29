@@ -99,7 +99,7 @@
   /* KPI */
   .kpi-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.75rem; margin-bottom: 1.25rem; }
   .kpi { background: white; border-radius: 10px; padding: 1rem 1.15rem; border: 1px solid var(--gray-200); }
-  .kpi .label { font-size: 0.7rem; color: var(--gray-500); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+  .kpi .label { font-size: 0.7rem; color: var(--gray-500); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .kpi .value { font-size: 1.25rem; font-weight: 700; margin-top: 0.15rem; }
   .kpi .detail { font-size: 0.75rem; color: var(--gray-500); margin-top: 0.15rem; }
 
@@ -337,7 +337,7 @@
   <div class="kpi" id="kpiFV"><div class="label" id="kpiFVlbl">FV Winner (Year 10) <span class="tip">?<span class="tiptext">Which scenario produces more total wealth at the end of the hold period, after all taxes.</span></span></div><div class="value" id="kpiFVval"></div><div class="detail" id="kpiFVdet"></div></div>
   <div class="kpi" id="kpiNPV"><div class="label">NPV Winner <span class="tip">?<span class="tiptext">Which scenario is worth more in today's dollars, discounting all future cash flows at the discount rate.</span></span></div><div class="value" id="kpiNPVval"></div><div class="detail" id="kpiNPVdet"></div></div>
   <div class="kpi" id="kpiIRR"><div class="label" id="kpiIRRlbl">Hold IRR <span class="tip">?<span class="tiptext">The annualized return you effectively earn by choosing to hold instead of sell. Compare to the reinvestment rate — above means hold wins.</span></span></div><div class="value" id="kpiIRRval"></div><div class="detail" id="kpiIRRdet"></div></div>
-  <div class="kpi"><div class="label" id="kpiPWlbl">After-Tax Exit Proceeds <span class="tip">?<span class="tiptext">Net proceeds after transaction costs, REET, and capital gains tax on the expected exit sale in Scenario B.</span></span></div><div class="value" id="kpiPWval"></div><div class="detail" id="kpiPWdet"></div></div>
+  <div class="kpi"><div class="label" id="kpiPWlbl">Exit Net Proceeds <span class="tip">?<span class="tiptext">Net proceeds after transaction costs, REET, and capital gains tax on the expected exit sale in Scenario B.</span></span></div><div class="value" id="kpiPWval"></div><div class="detail" id="kpiPWdet"></div></div>
   <div class="kpi"><div class="label" id="kpiBElbl">Breakeven Sale Price <span class="tip">?<span class="tiptext">The minimum gross sale price today that would match Scenario B's after-tax future value. If the current offer is below this, holding is favored.</span></span></div><div class="value" id="kpiBEval"></div><div class="detail" id="kpiBEdet"></div></div>
 </div>
 
@@ -815,10 +815,10 @@ function recalculate() {
   }
 
   document.getElementById('kpiIRRlbl').innerHTML = (p.multiExit ? 'Expected Hold IRR' : 'Hold IRR') + ' <span class="tip">?<span class="tiptext">The annualized return you effectively earn by choosing to hold instead of sell. Compare to the reinvestment rate — above means hold wins.</span></span>';
-  document.getElementById('kpiPWlbl').innerHTML = (p.multiExit ? 'Expected AT Exit Proceeds' : 'After-Tax Exit Proceeds') + ' <span class="tip">?<span class="tiptext">Net proceeds after transaction costs, REET, and capital gains tax on the expected exit sale in Scenario B.</span></span>';
+  document.getElementById('kpiPWlbl').innerHTML = 'Exit Net Proceeds <span class="tip">?<span class="tiptext">Net proceeds after transaction costs, REET, and capital gains tax on the expected exit sale in Scenario B.</span></span>';
   document.getElementById('kpiPWval').textContent = fmtM(expected.b.netExitAT);
   document.getElementById('kpiPWval').style.color = 'var(--green-700)';
-  document.getElementById('kpiPWdet').textContent = 'Gross ' + fmtM(expectedExitPrice) + ' → net ' + fmtM(expected.b.netExitAT);
+  document.getElementById('kpiPWdet').textContent = fmtM(expectedExitPrice) + ' gross → ' + fmtM(expected.b.netExitAT) + ' net';
 
   // --- Breakeven Sale Price ---
   const beResult = calcBreakevenSalePrice(expected.b.totalFV, p);

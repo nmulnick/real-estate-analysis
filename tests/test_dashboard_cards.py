@@ -27,9 +27,9 @@ def _read_html():
 class TestAfterTaxExitProceedsKPI:
     """The Exit Price KPI was replaced with After-Tax Exit Proceeds."""
 
-    def test_html_has_after_tax_label(self):
+    def test_html_has_exit_net_proceeds_label(self):
         html = _read_html()
-        assert 'After-Tax Exit Proceeds' in html
+        assert 'Exit Net Proceeds' in html
         # Old label should NOT be present as a KPI label
         assert 'id="kpiPWlbl">Exit Price' not in html
 
