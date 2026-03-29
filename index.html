@@ -184,7 +184,40 @@
     table { font-size: 9pt; }
     .sens-table td, .sens-table th { font-size: 8pt; padding: 2px 4px; }
     canvas { max-height: 260px; }
+    /* Exec summary print mode */
+    body.print-exec .app { display: none !important; }
+    body.print-exec #execSummary { display: block !important; }
   }
+
+  /* Exec summary layout */
+  .exec-summary { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #111827; max-width: 800px; margin: 0 auto; font-size: 10pt; }
+  .exec-summary h1 { font-size: 16pt; margin: 0 0 2px; }
+  .exec-summary .exec-subtitle { font-size: 9pt; color: #6b7280; margin-bottom: 12px; }
+  .exec-summary .exec-banner { padding: 10px 16px; border-radius: 8px; margin-bottom: 12px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .exec-summary .exec-banner.hold { background: #dcfce7; border: 1px solid #16a34a; }
+  .exec-summary .exec-banner.sell { background: #dbeafe; border: 1px solid #2563eb; }
+  .exec-summary .exec-banner.mixed { background: #ffedd5; border: 1px solid #ea580c; }
+  .exec-summary .exec-banner .rec-label { font-size: 18pt; font-weight: 800; margin: 0; }
+  .exec-summary .exec-banner .rec-detail { font-size: 9pt; margin: 2px 0 0; }
+  .exec-summary .exec-flags { font-size: 8pt; color: #6b7280; margin-bottom: 10px; }
+  .exec-summary .exec-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 12px; }
+  .exec-summary .exec-metric { border: 1px solid #e5e7eb; border-radius: 6px; padding: 6px 8px; }
+  .exec-summary .exec-metric .em-label { font-size: 7pt; text-transform: uppercase; color: #6b7280; letter-spacing: 0.04em; font-weight: 600; }
+  .exec-summary .exec-metric .em-value { font-size: 11pt; font-weight: 700; }
+  .exec-summary .exec-scenarios { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+  .exec-summary .exec-scenario { border: 1px solid #e5e7eb; border-radius: 6px; padding: 8px 10px; }
+  .exec-summary .exec-scenario h3 { font-size: 9pt; margin: 0 0 4px; text-transform: uppercase; letter-spacing: 0.04em; color: #6b7280; }
+  .exec-summary .exec-scenario table { width: 100%; font-size: 9pt; }
+  .exec-summary .exec-scenario td:last-child { text-align: right; font-weight: 600; }
+  .exec-summary .exec-scenario .row-total td { font-weight: 700; border-top: 1px solid #d1d5db; padding-top: 3px; }
+  .exec-summary .exec-sens { margin-bottom: 12px; }
+  .exec-summary .exec-sens h3 { font-size: 9pt; text-transform: uppercase; color: #6b7280; margin: 0 0 4px; }
+  .exec-summary .exec-sens ul { font-size: 9pt; margin: 0; padding-left: 16px; }
+  .exec-summary .exec-assumptions { margin-bottom: 10px; }
+  .exec-summary .exec-assumptions h3 { font-size: 9pt; text-transform: uppercase; color: #6b7280; margin: 0 0 4px; }
+  .exec-summary .exec-assumptions table { width: 100%; font-size: 8pt; }
+  .exec-summary .exec-assumptions td { padding: 1px 6px; }
+  .exec-footer { font-size: 7pt; color: #9ca3af; border-top: 1px solid #e5e7eb; padding-top: 6px; }
 
   /* Tablet */
   @media (max-width: 1100px) {
@@ -328,6 +361,7 @@
       <button id="btnShare" class="btn-secondary" onclick="copyShareURL()">Share Link</button>
       <span id="shareStatus" class="share-status"></span>
       <button id="btnPrint" class="btn-secondary" onclick="printReport()">Print / PDF</button>
+      <button id="btnExec" class="btn-secondary" onclick="printExecSummary()">Exec Summary</button>
     </div>
   </div>
 </header>
@@ -400,6 +434,9 @@
 </div>
 </div>
 </div>
+
+<!-- Executive Summary (hidden, shown only during exec print) -->
+<div id="execSummary" style="display:none"></div>
 
 <script src="engine.js"></script>
 <script>
@@ -633,6 +670,134 @@ function printReport() {
     buildShareURLFromState(readShareStateFromDOM());
   window.print();
 }
+
+function buildExecSummary() {
+  const p = getInputs();
+  const a = calcA(p);
+  const exitAnalysis = evaluateExitScenarios(p, a);
+  const expected = exitAnalysis.summary;
+  const exitPrice = expected.price;
+  const beResult = calcBreakevenSalePrice(expected.b.totalFV, p);
+  const breakevenGross = beResult.value;
+
+  // Multi-signal recommendation
+  const fvDiff = expected.b.totalFV - a.fvAT;
+  const npvDiff = expected.b.totalNPV - a.npv;
+  const irrSignal = expected.irr !== null ? (expected.irr > p.reinvRate ? 'B' : 'A') : null;
+  const fvSignal = fvDiff > 0 ? 'B' : 'A';
+  const npvSignal = npvDiff > 0 ? 'B' : 'A';
+
+  let recType, recLabel, recDetail;
+  if (fvSignal === npvSignal && (irrSignal === null || irrSignal === fvSignal)) {
+    recType = fvSignal === 'B' ? 'hold' : 'sell';
+    recLabel = fvSignal === 'B' ? 'HOLD' : 'SELL';
+    const verb = fvSignal === 'B' ? 'Holding' : 'Selling';
+    recDetail = verb + ' produces ' + fmtM(Math.abs(fvDiff)) + ' more after-tax wealth at Year ' + p.holdYears;
+    if (expected.irr !== null) recDetail += ' (IRR ' + fmtP(expected.irr) + ' vs ' + fmtP1(p.reinvRate) + ' reinv.)';
+  } else {
+    recType = 'mixed';
+    recLabel = 'MIXED';
+    const parts = [];
+    parts.push('FV favors ' + (fvSignal === 'B' ? 'Hold' : 'Sell'));
+    parts.push('NPV favors ' + (npvSignal === 'B' ? 'Hold' : 'Sell'));
+    if (irrSignal) parts.push('IRR favors ' + (irrSignal === 'B' ? 'Hold' : 'Sell'));
+    recDetail = parts.join(' · ');
+  }
+
+  // Derived values
+  const irrSpread = expected.irr !== null ? expected.irr - p.reinvRate : null;
+  const beGap = breakevenGross !== null ? p.grossSale - breakevenGross : null;
+  const is1031 = document.getElementById('in_1031').checked;
+  const currentYoC = p.costBasis > 0 ? (p.noiP1 * (1 - p.ordRate)) / p.costBasis : 0;
+  const stabilizedYoC = p.costBasis > 0 ? (p.noiP2 * (1 - p.ordRate)) / p.costBasis : 0;
+  const dateStr = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  const shareUrl = buildShareURLFromState(readShareStateFromDOM());
+
+  // Sensitivity snapshot: scan for inflection points
+  const sensBullets = [];
+  // Bullet 1: breakeven context
+  if (breakevenGross !== null) {
+    sensBullets.push('Hold wins if exit price exceeds ' + fmtM(breakevenGross) + ' (breakeven). Current offer is ' + fmtM(Math.abs(beGap)) + ' ' + (beGap >= 0 ? 'above' : 'below') + '.');
+  }
+  // Bullet 2: IRR context
+  if (expected.irr !== null) {
+    sensBullets.push('Hold IRR (' + fmtP(expected.irr) + ') ' + (irrSpread >= 0 ? 'exceeds' : 'trails') + ' reinvestment rate (' + fmtP1(p.reinvRate) + ') by ' + (irrSpread >= 0 ? '+' : '') + fmtP(irrSpread) + '.');
+  }
+
+  // Build HTML
+  const el = document.getElementById('execSummary');
+  el.innerHTML = '<div class="exec-summary">' +
+    // Header
+    '<h1>Commercial Site Investment Analysis</h1>' +
+    '<div class="exec-subtitle">Executive Summary · ' + dateStr + ' · ' + p.holdYears + '-year analysis</div>' +
+
+    // Recommendation banner
+    '<div class="exec-banner ' + recType + '">' +
+    '<p class="rec-label">' + recLabel + '</p>' +
+    '<p class="rec-detail">' + recDetail + '</p>' +
+    '</div>' +
+
+    // Flags
+    '<div class="exec-flags">' +
+    '1031 Exchange: ' + (is1031 ? 'Yes' : 'No') + ' · ' +
+    'REET: ' + (p.reetEnabled ? 'On' : 'Off') + ' · ' +
+    (p.multiExit ? 'Probability-weighted (' + exitAnalysis.scenarioDefs.length + ' scenarios)' : 'Single exit scenario') +
+    '</div>' +
+
+    // Key metrics 2x4
+    '<div class="exec-metrics">' +
+    '<div class="exec-metric"><div class="em-label">FV Advantage</div><div class="em-value">' + (fvSignal === 'B' ? 'B' : 'A') + ' +' + fmtM(Math.abs(fvDiff)) + '</div></div>' +
+    '<div class="exec-metric"><div class="em-label">NPV Advantage</div><div class="em-value">' + (npvSignal === 'B' ? 'B' : 'A') + ' +' + fmtM(Math.abs(npvDiff)) + '</div></div>' +
+    '<div class="exec-metric"><div class="em-label">Hold IRR</div><div class="em-value">' + (expected.irr !== null ? fmtP(expected.irr) : 'N/A') + '</div></div>' +
+    '<div class="exec-metric"><div class="em-label">IRR Spread</div><div class="em-value">' + (irrSpread !== null ? (irrSpread >= 0 ? '+' : '') + fmtP(irrSpread) : 'N/A') + '</div></div>' +
+    '<div class="exec-metric"><div class="em-label">Breakeven Price</div><div class="em-value">' + (breakevenGross !== null ? fmtM(breakevenGross) : 'N/A') + '</div></div>' +
+    '<div class="exec-metric"><div class="em-label">Breakeven Gap</div><div class="em-value">' + (beGap !== null ? fmtM(Math.abs(beGap)) + ' ' + (beGap >= 0 ? 'above' : 'below') : 'N/A') + '</div></div>' +
+    '<div class="exec-metric"><div class="em-label">Yield on Cost</div><div class="em-value">' + fmtP(stabilizedYoC) + '</div></div>' +
+    '<div class="exec-metric"><div class="em-label">Hold Period</div><div class="em-value">' + p.holdYears + ' years</div></div>' +
+    '</div>' +
+
+    // Scenario waterfalls
+    '<div class="exec-scenarios">' +
+    '<div class="exec-scenario"><h3>A: Sell Now & Reinvest</h3><table>' +
+    '<tr><td>Gross Sale</td><td>' + fmtM(a.grossSale) + '</td></tr>' +
+    '<tr><td>Net After Costs & Tax</td><td>' + fmtM(a.atProceeds) + '</td></tr>' +
+    '<tr class="row-total"><td>Compounded FV (' + p.holdYears + 'yr @ ' + fmtP1(p.reinvRate) + ')</td><td>' + fmtM(a.fvAT) + '</td></tr>' +
+    '</table></div>' +
+    '<div class="exec-scenario"><h3>B: Hold, Lease & Sell</h3><table>' +
+    '<tr><td>Exit Net After Tax</td><td>' + fmtM(expected.b.netExitAT) + '</td></tr>' +
+    '<tr><td>Compounded Lease CF</td><td>' + fmtM(expected.b.compCF) + '</td></tr>' +
+    '<tr class="row-total"><td>Total FV</td><td>' + fmtM(expected.b.totalFV) + '</td></tr>' +
+    '</table></div>' +
+    '</div>' +
+
+    // Sensitivity snapshot
+    (sensBullets.length > 0 ? '<div class="exec-sens"><h3>Sensitivity Snapshot</h3><ul>' +
+    sensBullets.map(b => '<li>' + b + '</li>').join('') + '</ul></div>' : '') +
+
+    // Key assumptions
+    '<div class="exec-assumptions"><h3>Key Assumptions</h3><table>' +
+    '<tr><td>Gross Sale Price</td><td>' + fmtD(p.grossSale) + '</td><td>Cost Basis</td><td>' + fmtD(p.costBasis) + '</td></tr>' +
+    '<tr><td>TX Cost (Sell Now)</td><td>' + fmtP1(p.txNow) + '</td><td>TX Cost (Future)</td><td>' + fmtP1(p.txFuture) + '</td></tr>' +
+    '<tr><td>1031 Exchange</td><td>' + (is1031 ? 'Yes' : 'No') + '</td><td>WA REET</td><td>' + (p.reetEnabled ? 'On (' + fmtP1(p.reetLocalRate) + ')' : 'Off') + '</td></tr>' +
+    '<tr><td>Reinvestment Rate</td><td>' + fmtP1(p.reinvRate) + '</td><td>Discount Rate</td><td>' + fmtP1(p.discRate) + '</td></tr>' +
+    '<tr><td>NOI Phase 1</td><td>' + fmtD(p.noiP1) + '</td><td>NOI Phase 2</td><td>' + fmtD(p.noiP2) + '</td></tr>' +
+    '<tr><td>Ordinary Income Rate</td><td>' + fmtP1(p.ordRate) + '</td><td>Lease Transition</td><td>Year ' + p.p1End + '</td></tr>' +
+    '</table></div>' +
+
+    // Footer
+    '<div class="exec-footer">Not financial advice · Full analysis: ' + shareUrl + '</div>' +
+    '</div>';
+}
+
+function printExecSummary() {
+  buildExecSummary();
+  document.body.classList.add('print-exec');
+  requestAnimationFrame(() => { window.print(); });
+}
+// Clean up print-exec class after printing (handles cancel too)
+window.addEventListener('afterprint', () => {
+  document.body.classList.remove('print-exec');
+});
 
 // ============================================================
 // DOLLAR FIELD INITIALIZATION

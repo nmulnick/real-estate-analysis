@@ -205,3 +205,70 @@ class TestPythonREETAccuracy:
     def test_reet_negative(self):
         r = ra.calc_reet(-100)
         assert r["total_reet"] == 0
+
+
+class TestExecSummary:
+    """Executive Summary print feature tests."""
+
+    def setup_method(self):
+        self.html = _read_html()
+
+    def test_exec_summary_button_exists(self):
+        assert 'Exec Summary' in self.html
+        assert 'printExecSummary()' in self.html
+
+    def test_build_exec_summary_function_exists(self):
+        assert 'function buildExecSummary()' in self.html
+
+    def test_print_exec_summary_function_exists(self):
+        assert 'function printExecSummary()' in self.html
+
+    def test_print_exec_css_rules_exist(self):
+        """Print CSS hides main app and shows exec summary."""
+        assert 'body.print-exec .app' in self.html
+        assert 'body.print-exec #execSummary' in self.html
+
+    def test_exec_footer_class_used(self):
+        """Uses .exec-footer class, not bare footer (which is hidden in print)."""
+        assert 'exec-footer' in self.html
+
+    def test_multi_signal_recommendation_logic(self):
+        """Recommendation checks FV, NPV, and IRR signals — not just FV."""
+        assert 'fvSignal' in self.html
+        assert 'npvSignal' in self.html
+        assert 'irrSignal' in self.html
+        assert 'MIXED' in self.html
+
+    def test_afterprint_cleanup(self):
+        """afterprint event removes print-exec class."""
+        assert 'afterprint' in self.html
+        assert "remove('print-exec')" in self.html or "remove(\"print-exec\")" in self.html
+
+    def test_hold_period_in_summary(self):
+        """Executive summary includes hold period."""
+        assert 'p.holdYears' in self.html and 'year' in self.html.lower()
+
+    def test_assumptions_include_1031_and_reet(self):
+        """Key assumptions section includes 1031 and REET status."""
+        # Find the buildExecSummary function
+        fn_start = self.html.index('function buildExecSummary()')
+        fn_block = self.html[fn_start:fn_start + 5000]
+        assert '1031' in fn_block
+        assert 'REET' in fn_block or 'reet' in fn_block
+
+    def test_sensitivity_snapshot_auto_generated(self):
+        """Sensitivity bullets are generated from computed data, not hardcoded."""
+        fn_start = self.html.index('function buildExecSummary()')
+        fn_block = self.html[fn_start:fn_start + 5000]
+        assert 'sensBullets' in fn_block
+
+    def test_scenario_waterfalls_use_computed_values(self):
+        """Scenario waterfalls use engine-computed values like a.atProceeds."""
+        fn_start = self.html.index('function buildExecSummary()')
+        fn_block = self.html[fn_start:fn_start + 5000]
+        assert 'a.atProceeds' in fn_block or 'a.fvAT' in fn_block
+        assert 'expected.b.totalFV' in fn_block
+
+    def test_hidden_by_default(self):
+        """Exec summary div is hidden by default."""
+        assert 'id="execSummary" style="display:none"' in self.html
