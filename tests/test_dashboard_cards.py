@@ -114,10 +114,11 @@ class TestBreakevenHoldPeriodChart:
         assert "'Breakeven Price'" in html
         assert "'Current Offer'" in html
 
-    def test_chart_loops_hold_periods_1_to_15(self):
-        """The recalculate function should sweep hold periods 1–15."""
+    def test_chart_loops_hold_periods_dynamically(self):
+        """The breakeven chart sweeps at least 15 years and extends to hold period."""
         html = _read_html()
-        assert 'yr <= 15' in html or 'yr < 16' in html
+        assert 'beMaxYr' in html
+        assert 'Math.max(15' in html or 'Math.max( 15' in html
 
     def test_breakeven_varies_with_hold_period(self):
         """Breakeven price should differ for different hold periods."""
@@ -604,3 +605,103 @@ class TestExecSummaryPageBreaks:
         assert 'exec-scenario' in html and 'break-inside' in html
         assert 'exec-sens' in html
         assert 'exec-assumptions' in html
+
+
+class TestLeaseForYearIntegerP1End:
+    """Verify leaseForYear handles integer p1End correctly."""
+
+    def test_integer_p1end_no_proration(self):
+        """p1End=4 (integer): years 1-4 get noi1, year 5+ gets noi2."""
+        ra.initial_carrying_costs = 0
+        ra.phase1_end_year = 4.0
+        b = ra.calc_scenario_b(200e6)
+        for yr_data in b["annual_details"]:
+            if yr_data["year"] <= 4:
+                assert yr_data["lease"] == ra.noi_phase1
+            else:
+                assert yr_data["lease"] == ra.noi_phase2
+        ra.phase1_end_year = 3.5  # Reset
+
+    def test_fractional_p1end_prorates(self):
+        """p1End=3.5: year 4 is prorated 50/50."""
+        ra.initial_carrying_costs = 0
+        ra.phase1_end_year = 3.5
+        b = ra.calc_scenario_b(200e6)
+        yr4 = [d for d in b["annual_details"] if d["year"] == 4][0]
+        expected = ra.noi_phase1 * 0.5 + ra.noi_phase2 * 0.5
+        assert yr4["lease"] == pytest.approx(expected, abs=1)
+
+
+class TestBreakevenSellSignal:
+    """Verify breakeven correctly signals when selling is favored."""
+
+    def setup_method(self):
+        ra.initial_carrying_costs = 0
+        ra.federal_cap_gains_rate = 0.0
+        ra.niit_rate = 0.0
+        ra.depreciation_recapture_rate = 0.0
+        ra.reet_enabled = True
+        ra.hold_period_years = 10
+
+    def test_high_offer_above_breakeven(self):
+        """Very high gross sale ($500M) should be above breakeven."""
+        ra.current_gross_sale_price = 500e6
+        a = ra.calc_scenario_a()
+        b = ra.calc_scenario_b(200e6)
+        # A's FV should beat B's FV when offer is very high
+        assert a["future_value_after_tax"] > b["total_fv_after_tax"]
+        ra.current_gross_sale_price = 100e6  # Reset
+
+
+class TestPythonCarryEscParameter:
+    """Verify Python calc_scenario_b uses carry_esc parameter, not global."""
+
+    def setup_method(self):
+        ra.initial_carrying_costs = 1_000_000
+        ra.carrying_cost_escalation = 0.03
+        ra.hold_period_years = 10
+
+    def test_carry_esc_parameter_overrides_global(self):
+        """Passing carry_esc should override the module-level global."""
+        b_default = ra.calc_scenario_b(200e6)
+        b_zero_esc = ra.calc_scenario_b(200e6, carry_esc=0.0)
+        b_high_esc = ra.calc_scenario_b(200e6, carry_esc=0.10)
+        # Zero escalation = lower total carrying = higher FV
+        assert b_zero_esc["total_fv_after_tax"] > b_default["total_fv_after_tax"]
+        # High escalation = higher total carrying = lower FV
+        assert b_high_esc["total_fv_after_tax"] < b_default["total_fv_after_tax"]
+        ra.initial_carrying_costs = 0  # Reset
+
+    def test_carry_esc_none_uses_global(self):
+        """Not passing carry_esc should use module-level carrying_cost_escalation."""
+        ra.carrying_cost_escalation = 0.05
+        b1 = ra.calc_scenario_b(200e6)
+        b2 = ra.calc_scenario_b(200e6, carry_esc=0.05)
+        assert b1["total_fv_after_tax"] == pytest.approx(
+            b2["total_fv_after_tax"], abs=1)
+        ra.carrying_cost_escalation = 0.03  # Reset
+        ra.initial_carrying_costs = 0
+
+
+class TestBreakevenChartMultiExit:
+    """Verify breakeven chart uses weighted scenarios in multi-exit mode."""
+
+    def test_breakeven_chart_uses_weighted_fv(self):
+        """The breakeven chart code should weight per-scenario FVs."""
+        html = _read_html()
+        # Should loop over scenarioDefs and weight
+        assert 'scenarioDefs.forEach' in html or 'exitAnalysis.scenarioDefs' in html
+        # Should compute targetFV as weighted sum
+        be_section = html[html.index('Breakeven vs Hold Period'):]
+        be_section = be_section[:be_section.index('chartNPV.update')]
+        assert 'targetFV' in be_section
+        assert 's.wt' in be_section or 'wt' in be_section
+
+
+class TestGreenCSSVariable:
+    """Verify YoC KPI uses defined CSS variable."""
+
+    def test_yoc_uses_defined_green_variable(self):
+        """Should use --green (defined), not --green-700 (undefined)."""
+        html = _read_html()
+        assert 'green-700' not in html

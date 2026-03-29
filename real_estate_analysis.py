@@ -58,6 +58,16 @@ depreciation_recapture_rate = 0.25
 cumulative_depreciation = 0          # Set > 0 if depreciation was claimed
 ordinary_income_rate = 0.37          # Marginal rate on lease income
 
+# WA Real Estate Excise Tax (REET)
+reet_enabled = True                  # Toggle REET on/off
+reet_local_rate = 0.005              # Bellevue local rate (0.50%)
+REET_BRACKETS = [
+    (525_000,        0.011),         # $0–$525K at 1.10%
+    (1_525_000,      0.0128),        # $525K–$1.525M at 1.28%
+    (3_025_000,      0.0275),        # $1.525M–$3.025M at 2.75%
+    (float('inf'),   0.03),          # $3.025M+ at 3.00%
+]
+
 # =============================================================================
 # HELPER FUNCTIONS
 # =============================================================================
@@ -77,6 +87,25 @@ def fmt_m(value: float) -> str:
 def fmt_pct(value: float) -> str:
     """Format as percentage."""
     return f"{value * 100:.2f}%"
+
+
+def calc_reet(gross_price: float, local_rate: float = None) -> Dict:
+    """WA Real Estate Excise Tax — graduated state + flat local. Mirrors JS calcREET."""
+    if local_rate is None:
+        local_rate = reet_local_rate
+    safe_price = max(gross_price, 0)
+    safe_local = max(local_rate, 0)
+    state_reet = 0.0
+    prev_threshold = 0.0
+    for threshold, rate in REET_BRACKETS:
+        taxable_slice = min(safe_price, threshold) - prev_threshold
+        if taxable_slice <= 0:
+            break
+        state_reet += taxable_slice * rate
+        prev_threshold = threshold
+    local_reet = safe_price * safe_local
+    return {"state_reet": state_reet, "local_reet": local_reet,
+            "total_reet": state_reet + local_reet}
 
 
 def adjusted_basis() -> float:
@@ -137,13 +166,17 @@ def calc_cap_gains_tax(gain: float, depreciation: float = 0,
 
 
 def calc_disposition(gross_price: float, tx_rate: float,
-                     fed_rate: float = None) -> Dict:
-    """Compute sale disposition: transaction costs, gain, tax, after-tax proceeds.
+                     fed_rate: float = None,
+                     reet_on: bool = None) -> Dict:
+    """Compute sale disposition: transaction costs, REET, gain, tax, after-tax proceeds.
 
     Mirrors JS calcDisposition — uses adjustedBasis() for gain computation.
     """
+    if reet_on is None:
+        reet_on = reet_enabled
     tx_costs = gross_price * tx_rate
-    net_proceeds = gross_price - tx_costs
+    reet = calc_reet(gross_price) if reet_on else {"state_reet": 0, "local_reet": 0, "total_reet": 0}
+    net_proceeds = gross_price - tx_costs - reet["total_reet"]
     basis = adjusted_basis()
     recognized_gain = max(net_proceeds - basis, 0)
     tax = calc_cap_gains_tax(recognized_gain, cumulative_depreciation,
@@ -151,6 +184,7 @@ def calc_disposition(gross_price: float, tx_rate: float,
     return {
         "gross_price": gross_price,
         "tx_costs": tx_costs,
+        "reet_total": reet["total_reet"],
         "net_proceeds": net_proceeds,
         "adjusted_basis": basis,
         "recognized_gain": recognized_gain,
@@ -230,7 +264,8 @@ def calc_scenario_b(exit_price: float,
                     noi_p2: float = None,
                     p1_end: float = None,
                     fed_rate: float = None,
-                    ord_rate: float = None) -> Dict:
+                    ord_rate: float = None,
+                    carry_esc: float = None) -> Dict:
     """Calculate Scenario B: Hold, Lease & Sell Later for a given exit price."""
     if reinv_rate is None:
         reinv_rate = reinvestment_rate
@@ -250,13 +285,15 @@ def calc_scenario_b(exit_price: float,
         fed_rate = federal_cap_gains_rate
     if ord_rate is None:
         ord_rate = ordinary_income_rate
+    if carry_esc is None:
+        carry_esc = carrying_cost_escalation
 
     annual_details = []
     compounded_cf = 0.0  # running compounded value of reinvested net cash flows
     npv_cf_sum = 0.0     # sum of discounted after-tax cash flows
 
     for yr in range(1, hold_period_years + 1):
-        carrying = init_carrying * (1 + carrying_cost_escalation) ** (yr - 1)
+        carrying = init_carrying * (1 + carry_esc) ** (yr - 1)
         lease = lease_for_year(yr, p1_end, noi_p1, noi_p2)
 
         net_cf_pretax = lease - carrying

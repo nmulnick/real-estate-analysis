@@ -999,7 +999,7 @@ function recalculate() {
   const stabilizedYoC = p.costBasis > 0 ? (p.noiP2 * (1 - p.ordRate)) / p.costBasis : 0;
   document.getElementById('kpiPWlbl').innerHTML = 'Yield on Cost <span class="tip">?<span class="tiptext">After-tax cash-on-cash return on your cost basis from Scenario B\'s lease income. Current YoC uses Phase 1 NOI; stabilized uses Phase 2 NOI after the lease transition.</span></span>';
   document.getElementById('kpiPWval').textContent = fmtP(stabilizedYoC);
-  document.getElementById('kpiPWval').style.color = 'var(--green-700)';
+  document.getElementById('kpiPWval').style.color = 'var(--green)';
   document.getElementById('kpiPWdet').textContent = fmtP(currentYoC) + ' now / ' + fmtP(stabilizedYoC) + ' stab.';
 
   // --- Breakeven Sale Price ---
@@ -1027,14 +1027,21 @@ function recalculate() {
   chartFV.data.datasets[1].data = bResults.map(s => +(s.b.totalFV / 1e6).toFixed(1));
   chartFV.update();
 
-  // Breakeven vs Hold Period curve: vary holdYears 1–15, compute breakeven for each
+  // Breakeven vs Hold Period curve: vary holdYears, compute breakeven for each
+  // In multi-exit mode, weight per-scenario FVs to get the correct target
   const beCurveLabels = [];
   const beCurveData = [];
   const offerLine = [];
-  for (let yr = 1; yr <= 15; yr++) {
+  const beMaxYr = Math.max(15, p.holdYears + 2);
+  for (let yr = 1; yr <= beMaxYr; yr++) {
     const pAlt = Object.assign({}, p, { holdYears: yr });
-    const bAlt = calcB(expectedExitPrice, pAlt);
-    const be = calcBreakevenSalePrice(bAlt.totalFV, pAlt);
+    // Compute weighted FV target across all exit scenarios
+    let targetFV = 0;
+    exitAnalysis.scenarioDefs.forEach(s => {
+      const bS = calcB(s.price, pAlt);
+      targetFV += bS.totalFV * s.wt;
+    });
+    const be = calcBreakevenSalePrice(targetFV, pAlt);
     beCurveLabels.push(yr);
     beCurveData.push(be.value !== null ? +(be.value / 1e6).toFixed(1) : null);
     offerLine.push(+(p.grossSale / 1e6).toFixed(1));
