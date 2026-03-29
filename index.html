@@ -337,7 +337,7 @@
   <div class="kpi" id="kpiFV"><div class="label" id="kpiFVlbl">FV Winner (Year 10) <span class="tip">?<span class="tiptext">Which scenario produces more total wealth at the end of the hold period, after all taxes.</span></span></div><div class="value" id="kpiFVval"></div><div class="detail" id="kpiFVdet"></div></div>
   <div class="kpi" id="kpiNPV"><div class="label">NPV Winner <span class="tip">?<span class="tiptext">Which scenario is worth more in today's dollars, discounting all future cash flows at the discount rate.</span></span></div><div class="value" id="kpiNPVval"></div><div class="detail" id="kpiNPVdet"></div></div>
   <div class="kpi" id="kpiIRR"><div class="label" id="kpiIRRlbl">Hold IRR <span class="tip">?<span class="tiptext">The annualized return you effectively earn by choosing to hold instead of sell. Compare to the reinvestment rate — above means hold wins.</span></span></div><div class="value" id="kpiIRRval"></div><div class="detail" id="kpiIRRdet"></div></div>
-  <div class="kpi"><div class="label" id="kpiPWlbl">Exit Net Proceeds <span class="tip">?<span class="tiptext">Net proceeds after transaction costs, REET, and capital gains tax on the expected exit sale in Scenario B.</span></span></div><div class="value" id="kpiPWval"></div><div class="detail" id="kpiPWdet"></div></div>
+  <div class="kpi"><div class="label" id="kpiPWlbl">Yield on Cost <span class="tip">?<span class="tiptext">After-tax cash-on-cash return on your cost basis from Scenario B's lease income. Current YoC uses Phase 1 NOI; stabilized uses Phase 2 NOI after the lease transition.</span></span></div><div class="value" id="kpiPWval"></div><div class="detail" id="kpiPWdet"></div></div>
   <div class="kpi"><div class="label" id="kpiBElbl">Breakeven Sale Price <span class="tip">?<span class="tiptext">The minimum gross sale price today that would match Scenario B's after-tax future value. If the current offer is below this, holding is favored.</span></span></div><div class="value" id="kpiBEval"></div><div class="detail" id="kpiBEdet"></div></div>
 </div>
 
@@ -821,10 +821,13 @@ function recalculate() {
   }
 
   document.getElementById('kpiIRRlbl').innerHTML = (p.multiExit ? 'Expected Hold IRR' : 'Hold IRR') + ' <span class="tip">?<span class="tiptext">The annualized return you effectively earn by choosing to hold instead of sell. Compare to the reinvestment rate — above means hold wins.</span></span>';
-  document.getElementById('kpiPWlbl').innerHTML = 'Exit Net Proceeds <span class="tip">?<span class="tiptext">Net proceeds after transaction costs, REET, and capital gains tax on the expected exit sale in Scenario B.</span></span>';
-  document.getElementById('kpiPWval').textContent = fmtM(expected.b.netExitAT);
+  // Yield on Cost: after-tax cash-on-cash return on cost basis
+  const currentYoC = p.costBasis > 0 ? (p.noiP1 * (1 - p.ordRate)) / p.costBasis : 0;
+  const stabilizedYoC = p.costBasis > 0 ? (p.noiP2 * (1 - p.ordRate)) / p.costBasis : 0;
+  document.getElementById('kpiPWlbl').innerHTML = 'Yield on Cost <span class="tip">?<span class="tiptext">After-tax cash-on-cash return on your cost basis from Scenario B\'s lease income. Current YoC uses Phase 1 NOI; stabilized uses Phase 2 NOI after the lease transition.</span></span>';
+  document.getElementById('kpiPWval').textContent = fmtP(stabilizedYoC);
   document.getElementById('kpiPWval').style.color = 'var(--green-700)';
-  document.getElementById('kpiPWdet').textContent = 'From ' + fmtM(expectedExitPrice) + ' gross exit';
+  document.getElementById('kpiPWdet').textContent = fmtP(currentYoC) + ' current · ' + fmtP(stabilizedYoC) + ' stabilized';
 
   // --- Breakeven Sale Price ---
   const beResult = calcBreakevenSalePrice(expected.b.totalFV, p);

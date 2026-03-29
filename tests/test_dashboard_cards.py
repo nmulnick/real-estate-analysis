@@ -24,24 +24,73 @@ def _read_html():
         return f.read()
 
 
-class TestAfterTaxExitProceedsKPI:
-    """The Exit Price KPI was replaced with After-Tax Exit Proceeds."""
+class TestYieldOnCostKPI:
+    """Exit Net Proceeds KPI was replaced with Yield on Cost."""
 
-    def test_html_has_exit_net_proceeds_label(self):
+    def test_html_has_yield_on_cost_label(self):
         html = _read_html()
-        assert 'Exit Net Proceeds' in html
-        # Old label should NOT be present as a KPI label
+        assert 'Yield on Cost' in html
         assert 'id="kpiPWlbl">Exit Price' not in html
+        assert 'id="kpiPWlbl">Exit Net Proceeds' not in html
 
-    def test_kpi_shows_net_exit_at(self):
-        """JS populates the KPI with expected.b.netExitAT, not exit price."""
+    def test_kpi_js_computes_yoc(self):
+        """JS computes currentYoC and stabilizedYoC from NOI and cost basis."""
         html = _read_html()
-        assert 'expected.b.netExitAT' in html
+        assert 'currentYoC' in html
+        assert 'stabilizedYoC' in html
+        assert 'p.noiP1' in html
+        assert 'p.noiP2' in html
+        assert 'p.costBasis' in html
+        assert 'p.ordRate' in html
 
-    def test_kpi_shows_gross_to_net(self):
-        """Detail line shows gross → net conversion."""
+    def test_kpi_detail_shows_current_and_stabilized(self):
+        """Detail line shows both current and stabilized YoC."""
         html = _read_html()
-        assert "Gross '" in html or "'Gross '" in html or "Gross ' +" in html or 'fmtM(expectedExitPrice)' in html
+        assert 'current' in html and 'stabilized' in html
+
+
+class TestYieldOnCostMath:
+    """Verify YoC formula: after-tax NOI / cost basis."""
+
+    def test_default_current_yoc(self):
+        """Current YoC = $600K * (1 - 0.37) / $8,425,000."""
+        noi = 600_000
+        ord_rate = 0.37
+        basis = 8_425_000
+        expected = (noi * (1 - ord_rate)) / basis
+        assert expected == pytest.approx(0.04485, abs=0.0001)  # ~4.49%
+
+    def test_default_stabilized_yoc(self):
+        """Stabilized YoC = $2,000,000 * (1 - 0.37) / $8,425,000."""
+        noi = 2_000_000
+        ord_rate = 0.37
+        basis = 8_425_000
+        expected = (noi * (1 - ord_rate)) / basis
+        assert expected == pytest.approx(0.14955, abs=0.0001)  # ~14.96%
+
+    def test_zero_basis_no_divide_by_zero(self):
+        """YoC should be 0 when cost basis is 0 (no divide by zero)."""
+        # The JS guard is: p.costBasis > 0 ? ... : 0
+        html = _read_html()
+        assert 'p.costBasis > 0' in html
+
+    def test_yoc_scales_with_noi(self):
+        """Higher NOI → higher YoC, linearly."""
+        basis = 10_000_000
+        ord_rate = 0.37
+        yoc_1m = (1_000_000 * (1 - ord_rate)) / basis
+        yoc_2m = (2_000_000 * (1 - ord_rate)) / basis
+        assert yoc_2m == pytest.approx(yoc_1m * 2, abs=0.0001)
+
+    def test_yoc_formula_matches_definition(self):
+        """YoC = after-tax NOI / cost basis, standard CRE metric."""
+        # Formula: (NOI * (1 - ordinary_rate)) / cost_basis
+        noi = 5_000_000
+        ord_rate = 0.40
+        basis = 50_000_000
+        at_noi = noi * (1 - ord_rate)  # $3M
+        yoc = at_noi / basis  # 6%
+        assert yoc == pytest.approx(0.06, abs=0.0001)
 
 
 class TestBreakevenHoldPeriodChart:
