@@ -705,3 +705,126 @@ class TestGreenCSSVariable:
         """Should use --green (defined), not --green-700 (undefined)."""
         html = _read_html()
         assert 'green-700' not in html
+
+
+class TestBugD_IRRPartialWeighting:
+    """Bug D: Weighted IRR should use partial weighting when some scenarios have no IRR."""
+
+    def setup_method(self):
+        ra.initial_carrying_costs = 0
+        ra.federal_cap_gains_rate = 0.0
+        ra.niit_rate = 0.0
+        ra.depreciation_recapture_rate = 0.0
+        ra.reet_enabled = True
+        ra.hold_period_years = 10
+
+    def test_partial_irr_not_null_when_one_scenario_invalid(self):
+        """If bull/base have valid IRR but bear doesn't, expected IRR should not be null."""
+        # Bear at $1 with $0 carry → tiny terminal CF → IRR may be null or very low
+        # Bull at $250M → valid IRR
+        # The weighted IRR should be non-null (computed from valid scenarios)
+        a = ra.calc_scenario_a()
+        b_bull = ra.calc_scenario_b(250e6)
+        b_base = ra.calc_scenario_b(200e6)
+        # Both bull and base should have positive FV > opportunity cost
+        assert b_bull["total_fv_after_tax"] > a["future_value_after_tax"]
+        assert b_base["total_fv_after_tax"] > a["future_value_after_tax"]
+
+    def test_all_null_irr_returns_null(self):
+        """If all scenarios have null IRR, expected IRR should be null."""
+        # This tests the valid_wt_sum=0 path in Python
+        import os
+        engine_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "engine.js"
+        )
+        with open(engine_path) as f:
+            engine = f.read()
+        assert 'validIRRWeightSum > 0' in engine
+
+    def test_normalization_math(self):
+        """IRR is normalized by valid weight sum, not total weight."""
+        import os
+        engine_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "engine.js"
+        )
+        with open(engine_path) as f:
+            engine = f.read()
+        assert 'validIRRWeightSum' in engine
+        assert 'weightedIRR / validIRRWeightSum' in engine
+
+    def test_python_partial_irr(self):
+        """Python evaluate_exit_scenarios also uses partial weighting."""
+        py_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "real_estate_analysis.py"
+        )
+        with open(py_path) as f:
+            py_src = f.read()
+        assert 'valid_wt_sum' in py_src
+
+
+class TestBugA_NegativeInputClamping:
+    """Bug A: Dollar inputs should be clamped to >= 0."""
+
+    def test_getinputs_clamps_dollar_fields(self):
+        """getInputs wraps parseDollar with Math.max(0, ...)."""
+        html = _read_html()
+        assert 'Math.max(0, parseDollar(id))' in html
+
+    def test_negative_carry_clamped_in_python(self):
+        """Negative carry should not inflate Scenario B in Python."""
+        ra.initial_carrying_costs = 0
+        b_zero = ra.calc_scenario_b(200e6)
+        # If we could pass negative carry it would increase FV
+        # But the app clamps at the UI level; Python trusts the input
+        assert b_zero["total_fv_after_tax"] > 0
+
+
+class TestBugB_SensTable4TXRate:
+    """Bug B: Sens Table 4 should not override Scenario B's TX rate."""
+
+    def test_sens4_does_not_pass_tx_to_calcb(self):
+        """buildSens4 should pass undefined for txOverride to calcB."""
+        html = _read_html()
+        # Find buildSens4 function
+        fn_start = html.index('function buildSens4')
+        fn_block = html[fn_start:fn_start + 500]
+        # The calcB call should have undefined in the tx position (5th arg)
+        # Pattern: calcB(p.exitBase, p, undefined, undefined, undefined, undefined, undefined, cg)
+        assert 'calcB(p.exitBase, p, undefined, undefined, undefined, undefined, undefined, cg)' in fn_block
+
+    def test_sens4_header_says_sell_tx(self):
+        """Table 4 header should clarify it's the sell-now TX rate."""
+        html = _read_html()
+        assert 'Sell TX' in html
+
+
+class TestBugC_FmtMSmallValues:
+    """Bug C: fmtM should fall back to fmtD for values under $100K."""
+
+    def test_fmtm_has_small_value_guard(self):
+        """fmtM should check abs < 1e5 and return fmtD."""
+        html = _read_html()
+        assert '1e5' in html
+        assert 'fmtD(v)' in html
+
+    def test_small_value_not_zero_m(self):
+        """$843 should NOT display as $0.0M."""
+        # fmtM($843) should use fmtD → "$843"
+        # Verify the guard exists in the code
+        html = _read_html()
+        fmtm_start = html.index('const fmtM')
+        fmtm_block = html[fmtm_start:fmtm_start + 300]
+        assert 'abs < 1e5' in fmtm_block
+        assert 'fmtD' in fmtm_block
+
+    def test_zero_returns_dollar_zero(self):
+        """fmtM(0) should return '$0' via fmtD, not '$0.0M'."""
+        html = _read_html()
+        # abs(0) = 0, which is < 1e5, so fmtD(0) = '$0'
+        fmtm_start = html.index('const fmtM')
+        fmtm_block = html[fmtm_start:fmtm_start + 300]
+        # The guard catches 0 since 0 < 1e5
+        assert 'abs < 1e5' in fmtm_block

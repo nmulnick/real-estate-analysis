@@ -294,7 +294,7 @@
       },
       irr: null,
     };
-    let allIRRsValid = true, weightedIRR = 0;
+    let validIRRWeightSum = 0, weightedIRR = 0;
     for (let i = 0; i < results.length; i++) {
       const result = results[i];
       const weight = result.wt;
@@ -311,14 +311,14 @@
       summary.b.totalNPV += result.b.totalNPV * weight;
       summary.b.npvCF += result.b.npvCF * weight;
       summary.b.pvExit += result.b.pvExit * weight;
-      if (result.irr === null || !Number.isFinite(result.irr)) {
-        allIRRsValid = false;
-      } else {
+      if (result.irr !== null && Number.isFinite(result.irr)) {
         weightedIRR += result.irr * weight;
+        validIRRWeightSum += weight;
       }
     }
     summary.b.annual = weightedAnnual(results);
-    summary.irr = allIRRsValid ? weightedIRR : null;
+    // Partial weighted IRR: normalize over valid scenarios only
+    summary.irr = validIRRWeightSum > 0 ? weightedIRR / validIRRWeightSum : null;
     return summary;
   }
 

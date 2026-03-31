@@ -830,7 +830,7 @@ function initDollarFields() {
 
 function getInputs() {
   const v = id => parseFloat(document.getElementById(id).value) || 0;
-  const d = id => parseDollar(id);
+  const d = id => Math.max(0, parseDollar(id)); // clamp negatives to 0
   const multiExit = document.getElementById('in_multi_exit').checked;
   const singleExit = d('in_exit_single');
   return {
@@ -864,6 +864,7 @@ function getInputs() {
 const fmtD = v => '$' + Math.round(v).toLocaleString('en-US');
 const fmtM = v => {
   const abs = Math.abs(v);
+  if (abs < 1e5) return fmtD(v);  // show full dollars for small values
   if (abs >= 1e9) { const b = (v / 1e9).toFixed(1); return '$' + parseFloat(b).toLocaleString('en-US', {minimumFractionDigits: 1, maximumFractionDigits: 1}) + 'B'; }
   const m = (v / 1e6).toFixed(1); return '$' + parseFloat(m).toLocaleString('en-US', {minimumFractionDigits: 1, maximumFractionDigits: 1}) + 'M';
 };
@@ -1229,12 +1230,12 @@ function buildSens3(p, a) {
 function buildSens4(p) {
   const cgs = [0.15, 0.20, 0.25];
   const txs = [0.01, 0.02, 0.03, 0.04];
-  let h = '<tr><th>CG Rate</th>' + txs.map(t => '<th>TX ' + fmtP1(t) + '</th>').join('') + '</tr>';
+  let h = '<tr><th>CG Rate</th>' + txs.map(t => '<th>Sell TX ' + fmtP1(t) + '</th>').join('') + '</tr>';
   cgs.forEach(cg => {
     h += '<tr><td>' + fmtP1(cg) + '</td>';
     txs.forEach(tx => {
       const aR = calcA(p, undefined, tx, cg);
-      const bR = calcB(p.exitBase, p, undefined, undefined, tx, undefined, undefined, cg);
+      const bR = calcB(p.exitBase, p, undefined, undefined, undefined, undefined, undefined, cg);
       const d = bR.totalFV - aR.fvAT; const w = d > 0 ? 'B' : 'A';
       h += '<td class="cell-' + w.toLowerCase() + '">' + w + ' +' + fmtM(Math.abs(d)) + '</td>';
     });

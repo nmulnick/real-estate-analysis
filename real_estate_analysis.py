@@ -542,8 +542,12 @@ def evaluate_exit_scenarios() -> Dict:
         summary_annual.append(item)
     summary_b["annual_details"] = summary_annual
 
-    all_irrs_valid = all(r["irr"] is not None and math.isfinite(r["irr"]) for r in base_results)
-    weighted_irr = sum(r["irr"] * r["wt"] for r in base_results) if all_irrs_valid else None
+    # Partial weighted IRR: normalize over valid scenarios only
+    valid_irrs = [(r["irr"], r["wt"]) for r in base_results
+                  if r["irr"] is not None and math.isfinite(r["irr"])]
+    valid_wt_sum = sum(w for _, w in valid_irrs)
+    weighted_irr = (sum(irr * w for irr, w in valid_irrs) / valid_wt_sum
+                    if valid_wt_sum > 0 else None)
 
     summary = {
         "kind": "expected", "label": "Expected",
