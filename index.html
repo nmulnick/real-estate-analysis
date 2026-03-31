@@ -268,7 +268,7 @@
   <p style="font-size:0.75rem;color:var(--gray-500);margin-bottom:0.75rem">Edit any value — results update instantly.</p>
 
   <div class="section-label">Sale & Hold</div>
-  <div class="field"><label>Current Gross Sale Price ($) <span class="tip">?<span class="tiptext">The total sale price if you sold the property today, before any deductions.</span></span></label><input type="text" id="in_gross_sale" data-dollar data-raw="100000000" value="100,000,000"></div>
+  <div class="field"><label>Current Gross Sale Price ($) <span class="tip">?<span class="tiptext">The total sale price if you sold the property today, before any deductions.</span></span></label><input type="text" id="in_gross_sale" data-dollar data-raw="130000000" value="130,000,000"></div>
   <div class="field"><label>Cost Basis ($) <span class="tip">?<span class="tiptext">Your original purchase price plus capital improvements. Used to calculate capital gains on sale.</span></span></label><input type="text" id="in_cost_basis" data-dollar data-raw="8425000" value="8,425,000"></div>
   <div class="field-row">
     <div class="field"><label>Hold Period (yrs) <span class="tip">?<span class="tiptext">Number of years to hold before selling in Scenario B. Also the reinvestment horizon for Scenario A.</span></span></label><input type="number" id="in_hold" value="10" step="1" min="1" max="30"></div>
@@ -451,7 +451,7 @@ const { calcCGTax, calcDisposition, calcAFromGrossSale, calcA, calcB, calcIRR, n
 // Defaults reflect EFFECTIVE post-init state (1031 ON → tax fields = 0)
 // ============================================================
 const SHARE_SCHEMA = {
-  gs:  { id: 'in_gross_sale',   type: 'dollar',   default: 100000000 },
+  gs:  { id: 'in_gross_sale',   type: 'dollar',   default: 130000000 },
   cb:  { id: 'in_cost_basis',   type: 'dollar',   default: 8425000 },
   hy:  { id: 'in_hold',         type: 'number',   default: 10 },
   rr:  { id: 'in_reinv',        type: 'number',   default: 6 },

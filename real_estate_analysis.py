@@ -14,7 +14,7 @@ from typing import Dict, List, Tuple
 # =============================================================================
 
 # Sale & Hold Assumptions
-current_gross_sale_price = 100_000_000
+current_gross_sale_price = 130_000_000
 cost_basis = 8_425_000
 hold_period_years = 10
 reinvestment_rate = 0.06
